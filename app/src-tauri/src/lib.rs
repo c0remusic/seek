@@ -116,7 +116,7 @@ fn common_args(cmd: &mut Command) {
         .arg(BUNDLED_ORIGIN)
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stderr(sidecar_stderr());
 
     // The frozen sidecar is a console-subsystem binary — deliberately, since
     // stdout carries the endpoint handshake — and Windows opens a visible
@@ -133,6 +133,39 @@ fn common_args(cmd: &mut Command) {
     // trust a localhost web origin.
     #[cfg(debug_assertions)]
     cmd.arg("--allow-origin").arg("http://localhost:5273");
+}
+
+/// Where the sidecar's stderr goes.
+///
+/// On mac and Linux: inherit. A bundled app's stderr lands in the system log,
+/// which is how every sidecar problem so far was actually diagnosed
+/// (__main__.py documents the same reasoning from the Python side).
+///
+/// On Windows the parent is a GUI-subsystem process with no console, so the
+/// inherited handle is invalid and everything written to it vanishes — the
+/// one platform where a broken engine leaves no trace is the one being
+/// brought up. A file in the sidecar's own data folder keeps parity.
+/// Truncated per launch: it is this run's stderr, not a history — seek.log
+/// is the history.
+#[cfg(not(windows))]
+fn sidecar_stderr() -> Stdio {
+    Stdio::inherit()
+}
+#[cfg(windows)]
+fn sidecar_stderr() -> Stdio {
+    let dir = match std::env::var_os("APPDATA") {
+        // Matches the sidecar's own DEFAULT_APP_SUPPORT (%APPDATA%\Seek), so
+        // both logs end up side by side.
+        Some(appdata) => std::path::Path::new(&appdata).join("Seek").join("data"),
+        None => return Stdio::null(),
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return Stdio::null();
+    }
+    match std::fs::File::create(dir.join("sidecar-stderr.log")) {
+        Ok(file) => Stdio::from(file),
+        Err(_) => Stdio::null(),
+    }
 }
 
 /// Walk up from the executable to find the repo. In `tauri dev` the binary sits
@@ -191,6 +224,23 @@ fn spawn_sidecar() -> Result<(Child, Endpoint), String> {
 
     let endpoint: Endpoint = serde_json::from_str(line.trim())
         .map_err(|e| format!("could not parse the sidecar endpoint {line:?}: {e}"))?;
+
+    // Keep draining stdout for the sidecar's lifetime. Nothing is supposed to
+    // write there after the endpoint line (logfile.py forbids stdout
+    // handlers), but a stray upstream print into a pipe nobody reads would,
+    // at the pipe buffer's 64 KB, block the engine mid-write with no error
+    // anywhere. Reading and echoing costs a parked thread; a wedged engine
+    // costs a bug nobody can reproduce.
+    std::thread::spawn(move || {
+        let mut stray = String::new();
+        loop {
+            stray.clear();
+            match reader.read_line(&mut stray) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => eprintln!("seek-sidecar[stdout]: {}", stray.trim_end()),
+            }
+        }
+    });
 
     Ok((child, endpoint))
 }
