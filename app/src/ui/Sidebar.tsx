@@ -54,6 +54,8 @@ export interface ConnectionStatus {
   dot: 'online' | 'offline' | 'pending';
   label: string;
   detail: string;
+  /** An offer to do something about it, when there is something to do. */
+  action?: { label: string; run(): void };
 }
 
 /**
@@ -279,6 +281,15 @@ export function Sidebar({
           <span className="status-dot" data-state={status.dot} aria-hidden />
           <span>{status.label}</span>
         </span>
+        {status.action && (
+          <button
+            type="button"
+            className="sidebar__conn-action pressable"
+            onClick={status.action.run}
+          >
+            {status.action.label}
+          </button>
+        )}
         {/* Only once the engine has actually reported. A rate of zero is real
             information — nothing is moving — but a rate of zero before any
             stats event has arrived is just an absence dressed as a fact. */}

@@ -595,3 +595,28 @@ export async function sidecarStartupError(): Promise<string | null> {
     return `The app could not reach its own backend: ${(e as Error).message}`;
   }
 }
+
+/**
+ * Ask the shell to kill and relaunch the engine. Returns an error message, or
+ * null on success. The client swap does not ride this return value — the
+ * shell announces the new endpoint through `sidecar-ready`, the same door the
+ * automatic restart uses, so both paths converge on one code path.
+ */
+export async function requestSidecarRestart(): Promise<string | null> {
+  if (!isTauri()) return 'not running inside the app shell';
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('restart_sidecar');
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
+
+/**
+ * Whether two endpoints name the same sidecar. A restart mints a new port AND
+ * a new token, so all three fields carry identity.
+ */
+export function sameEndpoint(a: SidecarEndpoint, b: SidecarEndpoint): boolean {
+  return a.host === b.host && a.port === b.port && a.token === b.token;
+}
