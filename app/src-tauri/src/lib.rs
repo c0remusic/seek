@@ -45,10 +45,18 @@ fn bundled_sidecar() -> Option<std::path::PathBuf> {
     // Tauri copies the CONTENTS of a mapped resource directory, not the
     // directory itself, so the binary sits beside `_internal` rather than in a
     // nested folder of its own.
+    #[cfg(target_os = "macos")]
     let candidate = exe
         .parent()?
         .parent()?
         .join("Resources/sidecar/seek-sidecar");
+    // Windows (NSIS) and Linux lay resources out flat beside the executable,
+    // so the same mapping lands at <install dir>/sidecar/.
+    #[cfg(not(target_os = "macos"))]
+    let candidate = exe
+        .parent()?
+        .join("sidecar")
+        .join(format!("seek-sidecar{}", std::env::consts::EXE_SUFFIX));
     candidate.exists().then_some(candidate)
 }
 
@@ -62,22 +70,29 @@ fn frozen_command(binary: &std::path::Path) -> Command {
     cmd
 }
 
+/// The development virtualenv's interpreter, relative to the repo root. The
+/// `bin`/`Scripts` split is the one part of a venv's layout that differs
+/// per OS.
+#[cfg(not(windows))]
+const VENV_PYTHON: &str = "sidecar/.venv/bin/python";
+#[cfg(windows)]
+const VENV_PYTHON: &str = "sidecar/.venv/Scripts/python.exe";
+
 /// Development fallback: the repo's virtualenv. Not redistributable — the .app
 /// only works where that venv exists — but it is what `tauri dev` and a
 /// source checkout use, and it avoids re-freezing on every code change.
 fn sidecar_command(repo: &std::path::Path) -> Command {
-    let mut cmd = Command::new(repo.join("sidecar/.venv/bin/python"));
+    // `join_paths`, not a formatted string: PYTHONPATH's separator is `:` on
+    // unix and `;` on Windows.
+    let pythonpath =
+        std::env::join_paths([repo.join("upstream"), std::path::PathBuf::from(".")])
+            .expect("repo paths never contain the PYTHONPATH separator");
+    let mut cmd = Command::new(repo.join(VENV_PYTHON));
     cmd.arg("-m")
         .arg("seek_sidecar")
         .arg("--print-endpoint")
-        // The webview DOES send an Origin, contrary to the assumption the
-        // sidecar was written with — WKWebView reports `tauri://localhost` for
-        // a bundled app. Without this the sidecar 403s its own frontend and
-        // retries forever, which presents as a permanently offline app.
-        .arg("--allow-origin")
-        .arg("tauri://localhost")
         .current_dir(repo.join("sidecar"))
-        .env("PYTHONPATH", format!("{}:.", repo.join("upstream").display()));
+        .env("PYTHONPATH", pythonpath);
     common_args(&mut cmd);
     cmd
 }
@@ -87,16 +102,31 @@ fn sidecar_command(repo: &std::path::Path) -> Command {
 /// allowed origin, where a mismatch presents as a permanently offline app with
 /// no error anywhere.
 fn common_args(cmd: &mut Command) {
-    cmd
-        // The webview DOES send an Origin, contrary to the assumption the
-        // sidecar was written with — WKWebView reports `tauri://localhost` for
-        // a bundled app. Without this the sidecar 403s its own frontend and
-        // retries forever.
-        .arg("--allow-origin")
-        .arg("tauri://localhost")
+    // The webview DOES send an Origin, contrary to the assumption the sidecar
+    // was written with — and WHICH origin differs per engine: WKWebView
+    // reports `tauri://localhost` for a bundled app, while WebView2 serves the
+    // same app from `http://tauri.localhost`. Pass the wrong one and the
+    // sidecar 403s its own frontend and retries forever.
+    #[cfg(not(windows))]
+    const BUNDLED_ORIGIN: &str = "tauri://localhost";
+    #[cfg(windows)]
+    const BUNDLED_ORIGIN: &str = "http://tauri.localhost";
+
+    cmd.arg("--allow-origin")
+        .arg(BUNDLED_ORIGIN)
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
+
+    // The frozen sidecar is a console-subsystem binary — deliberately, since
+    // stdout carries the endpoint handshake — and Windows opens a visible
+    // console window for one unless the parent says otherwise.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 
     // `tauri dev` loads the page from the Vite server, so the origin is that
     // server's, not tauri://. Debug builds only — a release build must never
@@ -113,7 +143,7 @@ fn find_repo() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let mut dir = exe.parent()?.to_path_buf();
     for _ in 0..8 {
-        if dir.join("sidecar/.venv/bin/python").exists() && dir.join("upstream").is_dir() {
+        if dir.join(VENV_PYTHON).exists() && dir.join("upstream").is_dir() {
             return Some(dir);
         }
         dir = dir.parent()?.to_path_buf();
@@ -192,38 +222,46 @@ pub fn run() {
         }
     };
 
-    tauri::Builder::default()
-        // ⌘W has to reach the WEBVIEW, and by default it never does.
-        //
-        // Tauri installs the standard macOS menu, whose Window → Close owns
-        // ⌘W — so the key is swallowed by AppKit before any JavaScript sees it,
-        // and pressing it closed the whole app while the frontend's handler sat
-        // there doing nothing. No amount of `preventDefault` can win that; the
-        // menu item itself has to go.
-        //
-        // So: the default menu, minus that one item. Everything else is kept
-        // deliberately — removing the menu wholesale would take Edit → Copy and
-        // Paste with it, and a Soulseek client where ⌘C does nothing is a far
-        // worse bug than the one being fixed.
-        //
-        // The frontend then decides what ⌘W means: close the tab, or, when
-        // there is only one left, let the window close — which is Safari's
-        // behaviour and the one the muscle memory expects.
-        .menu(|handle| {
-            let menu = tauri::menu::Menu::default(handle)?;
-            // Found by ID and POSITION, never by title. Tauri builds the Window
-            // submenu as [minimize, maximize, separator, close_window], so the
-            // close item is its last entry — and matching on the string "Close"
-            // would quietly stop working for anyone running macOS in another
-            // language, which is the kind of bug nobody here would ever see.
-            if let Some(item) = menu.get(tauri::menu::WINDOW_SUBMENU_ID) {
-                if let Some(window_menu) = item.as_submenu() {
-                    let last = window_menu.items()?.len().saturating_sub(1);
-                    window_menu.remove_at(last)?;
-                }
+    let builder = tauri::Builder::default();
+
+    // ⌘W has to reach the WEBVIEW, and by default it never does.
+    //
+    // Tauri installs the standard macOS menu, whose Window → Close owns
+    // ⌘W — so the key is swallowed by AppKit before any JavaScript sees it,
+    // and pressing it closed the whole app while the frontend's handler sat
+    // there doing nothing. No amount of `preventDefault` can win that; the
+    // menu item itself has to go.
+    //
+    // So: the default menu, minus that one item. Everything else is kept
+    // deliberately — removing the menu wholesale would take Edit → Copy and
+    // Paste with it, and a Soulseek client where ⌘C does nothing is a far
+    // worse bug than the one being fixed.
+    //
+    // The frontend then decides what ⌘W means: close the tab, or, when
+    // there is only one left, let the window close — which is Safari's
+    // behaviour and the one the muscle memory expects.
+    //
+    // macOS only in every sense: the menu being pruned is the one AppKit
+    // installs on its own. On Windows there is no default menu, so calling
+    // `.menu()` there would ADD a visible menu bar instead of trimming one.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(|handle| {
+        let menu = tauri::menu::Menu::default(handle)?;
+        // Found by ID and POSITION, never by title. Tauri builds the Window
+        // submenu as [minimize, maximize, separator, close_window], so the
+        // close item is its last entry — and matching on the string "Close"
+        // would quietly stop working for anyone running macOS in another
+        // language, which is the kind of bug nobody here would ever see.
+        if let Some(item) = menu.get(tauri::menu::WINDOW_SUBMENU_ID) {
+            if let Some(window_menu) = item.as_submenu() {
+                let last = window_menu.items()?.len().saturating_sub(1);
+                window_menu.remove_at(last)?;
             }
-            Ok(menu)
-        })
+        }
+        Ok(menu)
+    });
+
+    builder
         // Native notifications for finished and failed downloads. macOS only
         // shows these when the app is in the background, which is exactly when
         // they are wanted.
