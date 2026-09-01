@@ -14,6 +14,18 @@ if ('__TAURI_INTERNALS__' in window || '__TAURI__' in window) {
   document.documentElement.dataset.shell = 'tauri';
 }
 
+/*
+ * The OS matters separately from the shell: only the mac window has vibrancy
+ * behind the page and overlays its controls on it. Read synchronously from the
+ * user agent — the Tauri platform APIs are async, and this attribute has to
+ * exist before the first paint or the window flashes the wrong material.
+ */
+document.documentElement.dataset.platform = navigator.userAgent.includes('Mac')
+  ? 'mac'
+  : navigator.userAgent.includes('Windows')
+    ? 'windows'
+    : 'linux';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
