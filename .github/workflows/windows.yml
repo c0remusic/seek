@@ -76,3 +76,53 @@ jobs:
           name: Seek-windows-nsis
           path: app/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+
+      # Diagnostic, not a gate (continue-on-error): install the installer we
+      # just built, run the REAL app on the runner, and read the sidecar's own
+      # log — the end-to-end the build cannot see: does the webview actually
+      # reach the engine? The three outcomes are told apart by the log:
+      # a hello line means the socket worked; "rejected connection" means the
+      # origin allowlist is wrong; neither means the engine died or the
+      # webview never connected.
+      - name: Probe the installed app
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem app/src-tauri/target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
+          Write-Host "installing $($setup.FullName)"
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $roots = @("$env:LOCALAPPDATA\Seek", "$env:ProgramFiles\Seek")
+          $exe = $roots | Where-Object { Test-Path $_ } |
+            ForEach-Object { Get-ChildItem $_ -Filter 'Seek.exe' -Recurse -ErrorAction SilentlyContinue } |
+            Select-Object -First 1
+          if (-not $exe) { Write-Host '::warning::installed Seek.exe not found'; exit 0 }
+          Write-Host "launching $($exe.FullName)"
+          Start-Process -FilePath $exe.FullName
+          Start-Sleep -Seconds 45
+          Write-Host '--- processes still alive ---'
+          Get-Process Seek, seek-sidecar -ErrorAction SilentlyContinue | Format-Table Name, Id -AutoSize
+          $seekLog = "$env:APPDATA\Seek\data\seek.log"
+          $stderrLog = "$env:APPDATA\Seek\data\sidecar-stderr.log"
+          foreach ($f in @($seekLog, $stderrLog)) {
+            Write-Host "--- $f ---"
+            if (Test-Path $f) { Get-Content $f } else { Write-Host '(missing)' }
+          }
+          if ((Test-Path $seekLog) -and (Select-String -Path $seekLog -Pattern 'client.*connected' -Quiet)) {
+            Write-Host '::notice::webview reached the sidecar (hello logged)'
+          } elseif ((Test-Path $seekLog) -and (Select-String -Path $seekLog -Pattern 'rejected connection' -Quiet)) {
+            Write-Host '::warning::sidecar rejected the connection - origin or token, see log above'
+          } else {
+            Write-Host '::warning::no hello in the sidecar log - engine dead, or webview never connected'
+          }
+          Stop-Process -Name Seek -Force -ErrorAction SilentlyContinue
+          Stop-Process -Name seek-sidecar -Force -ErrorAction SilentlyContinue
+
+      - name: Upload probe logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-logs
+          path: |
+            ~/AppData/Roaming/Seek/data/seek.log
+            ~/AppData/Roaming/Seek/data/sidecar-stderr.log
+          if-no-files-found: ignore
