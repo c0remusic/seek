@@ -2,6 +2,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import { ErrorBoundary } from './ui/ErrorBoundary.tsx';
 import './styles/base.css';
 
 /*
@@ -28,6 +29,11 @@ document.documentElement.dataset.platform = navigator.userAgent.includes('Mac')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {/* A crash above the per-pane boundaries replaces the whole window with
+      * the fallback — which still beats the alternative, a silent white
+      * screen with the error only in a devtools console nobody has open. */}
+    <ErrorBoundary label="app">
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

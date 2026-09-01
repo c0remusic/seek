@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './ui/Sidebar.tsx';
+import { ErrorBoundary } from './ui/ErrorBoundary.tsx';
 import { UpdateBanner } from './ui/UpdateBanner.tsx';
 import type { ConnectionStatus, Section } from './ui/Sidebar.tsx';
 import type { SearchSession } from './data/searchStore.ts';
@@ -796,6 +797,11 @@ export default function App() {
         uploadCount={transfers.uploadCount}
       />
       <main className="pane" data-scrolled="false">
+        {/* Per-pane wall: a throw in one view must not take the sidebar and
+          * the other sections with it. `key={section}` remounts the boundary
+          * on navigation, so a crashed view cannot hold its fallback over a
+          * different, healthy section. */}
+        <ErrorBoundary label={section} key={section}>
         {section === 'search' ? (
           <SearchView
             session={session}
@@ -967,6 +973,7 @@ export default function App() {
             connections={connections}
           />
         )}
+        </ErrorBoundary>
       </main>
     </div>
   );
