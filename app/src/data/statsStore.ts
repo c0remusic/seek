@@ -19,6 +19,7 @@
 
 import { useEffect, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import type { TransferStats } from '../domain/transferStats.ts';
 import { EMPTY_STATS } from '../domain/transferStats.ts';
 
@@ -31,6 +32,8 @@ export interface StatsSession {
 export function useTransferStats(client: SidecarClient | null): StatsSession {
   const [stats, setStats] = useState<TransferStats>(EMPTY_STATS);
   const [available, setAvailable] = useState(false);
+
+  const gen = useSidecarGeneration(client);
 
   useEffect(() => {
     if (!client) {
@@ -52,7 +55,9 @@ export function useTransferStats(client: SidecarClient | null): StatsSession {
       .catch(() => {});
 
     return off;
-  }, [client]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, gen]);
 
   return { stats, available };
 }

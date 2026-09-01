@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 
 export interface LibraryState {
   scannedAt: number;
@@ -119,6 +120,8 @@ export function useLibrary(client: SidecarClient | null): LibrarySession {
       .catch(() => {});
   }, [client]);
 
+  const gen = useSidecarGeneration(client);
+
   useEffect(() => {
     if (!client) return;
     const off = client.on('library.state', (d) => {
@@ -134,7 +137,9 @@ export function useLibrary(client: SidecarClient | null): LibrarySession {
     void client.request<LibraryState>('library.state').then(setState).catch(() => {});
     refreshOwned();
     return () => { off(); offGaps(); };
-  }, [client, refreshOwned]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, refreshOwned, gen]);
 
   const findGaps = useCallback((key: string, artist: string, release: string) => {
     if (!client) return;
