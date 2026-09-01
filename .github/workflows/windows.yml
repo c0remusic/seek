@@ -1,0 +1,78 @@
+# Seek — Windows build, on any PR that could affect it.
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Unlike ci.yml this DOES compile Rust and freeze the engine — that cost is the
+# point: development happens on macOS and Linux, so this job is the only
+# Windows machine the project has. It runs build-windows.sh, the same script a
+# person with a Windows box would run, and uploads the NSIS installer it
+# produces as a workflow artifact for hand-testing.
+#
+# Kept out of ci.yml so the path filter and the cancellation policy can differ:
+# a doc-only PR should not spend half an hour of Windows runner time.
+name: Windows
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'sidecar/**'
+      - 'shared/**'
+      - 'upstream'
+      - 'build-windows.sh'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        # Git Bash, so build-windows.sh runs exactly as it would by hand.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The engine is a submodule, and the sidecar tests import it.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: 'sidecar/requirements*.txt'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The Rust compile dominates a cold run; the cache roughly halves it.
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install
+        run: |
+          cd app && npm ci
+          cd ../sidecar
+          python -m venv .venv
+          # Needs the dev set: build-windows.sh runs the tests and then freezes.
+          .venv/Scripts/python -m pip install --quiet -r requirements-dev.txt
+
+      # The whole pipeline, and the same script used by hand: tests, freeze,
+      # staleness guard, fpcalc, a smoke test of the frozen engine, NSIS build.
+      - name: Build
+        run: ./build-windows.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Seek-windows-nsis
+          path: app/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
