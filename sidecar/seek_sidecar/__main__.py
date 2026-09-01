@@ -20,7 +20,16 @@ from .core_host import CoreHost
 from . import logfile
 from .server import Bridge, generate_token
 
-DEFAULT_APP_SUPPORT = os.path.expanduser("~/Library/Application Support/Seek")
+# The Tauri shell passes no --app-folder, so this default IS where a packaged
+# app keeps everything. Same platform split as nicotine_import: %APPDATA% is
+# the Roaming profile, with the literal path as the fallback for the rare
+# environment that scrubs the variable.
+if sys.platform == "win32":
+    _APPDATA = os.environ.get("APPDATA") or os.path.join(
+        os.path.expanduser("~"), "AppData", "Roaming")
+    DEFAULT_APP_SUPPORT = os.path.join(os.path.normpath(_APPDATA), "Seek")
+else:
+    DEFAULT_APP_SUPPORT = os.path.expanduser("~/Library/Application Support/Seek")
 
 
 def main(argv=None):
