@@ -175,6 +175,23 @@ async def test_non_object_frame_is_rejected(bridge):
 
 # --------------------------------------------------------------- broadcast
 
+async def _registered(bridge, count=1):
+    """Wait until the server has the client on its list.
+
+    `websockets.connect()` returns when the CLIENT's side of the handshake is
+    done; the server adds the socket to its client set a beat later, in the
+    handler, on its own loop. `broadcast()` in that gap is dropped by design
+    ("no clients, no work") — so a test that broadcasts straight after
+    connecting is a race, and a loaded Windows runner loses it where a mac
+    laptop never did.
+    """
+    for _ in range(200):
+        if len(bridge._clients) >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("the server never registered the client")
+
+
 async def test_broadcast_reaches_every_client(bridge):
     async with websockets.connect(url(bridge)) as a, \
                websockets.connect(url(bridge)) as b:
@@ -193,6 +210,7 @@ async def test_invalid_broadcast_is_dropped_not_raised(bridge):
     exception escaping a callback as fatal — it calls core.quit() and re-raises
     (events.py:275). A bad payload must never get that far."""
     async with websockets.connect(url(bridge)) as ws:
+        await _registered(bridge)
         bridge.broadcast("connection.stats", {"connections": "three"})  # bad type
         bridge.broadcast("connection.stats", {
             "connections": 1, "downloadBandwidth": 0, "uploadBandwidth": 0,
@@ -215,6 +233,7 @@ async def test_every_event_in_the_schema_can_be_broadcast(bridge):
     assert not missing, f"no sample payload for: {sorted(missing)}"
 
     async with websockets.connect(url(bridge)) as ws:
+        await _registered(bridge)
         for name in protocol.EVENT_NAMES:
             bridge.broadcast(name, samples[name])
         received = []
