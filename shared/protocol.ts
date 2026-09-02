@@ -1146,8 +1146,18 @@ export interface DiscoverTracklist {
 
 /** Identify a local audio file by its acoustic fingerprint. */
 export interface FingerprintParams {
-  /** Absolute local path. */
-  path: string;
+  /**
+   * Absolute local path. Null means 'use the file for transferId' — the same
+   * contract as SpectralRequestParams, so the Downloads screen can verify a
+   * finished file it knows only by transfer.
+   */
+  path: string | null;
+
+  /**
+   * Identify the completed file for this transfer. Ignored if `path` is given;
+   * refused while the transfer has not finished.
+   */
+  transferId: string | null;
 
   /**
    * Only fingerprint the first N seconds. Null uses the default. AcoustID

@@ -939,8 +939,13 @@ class DiscoverTracklist(TypedDict):
 
 class FingerprintParams(TypedDict):
     """Identify a local audio file by its acoustic fingerprint."""
-    # Absolute local path.
-    path: str
+    # Absolute local path. Null means 'use the file for transferId' — the same
+    # contract as SpectralRequestParams, so the Downloads screen can verify a
+    # finished file it knows only by transfer.
+    path: Optional[str]
+    # Identify the completed file for this transfer. Ignored if `path` is
+    # given; refused while the transfer has not finished.
+    transferId: Optional[str]
     # Only fingerprint the first N seconds. Null uses the default. AcoustID
     # matches on the opening of a track, so more than two minutes buys nothing
     # and costs decode time.
@@ -2485,7 +2490,8 @@ STRUCT_FIELDS: Dict[str, Tuple[Tuple[str, str, bool, bool], ...]] = {
         ("lines", "TracklistLine", True, False),
     ),
     "FingerprintParams": (
-        ("path", "str", False, False),
+        ("path", "str", False, True),
+        ("transferId", "str", False, True),
         ("durationLimit", "int", False, True),
     ),
     "DiscoverIdentified": (

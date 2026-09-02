@@ -988,7 +988,19 @@ STRUCTS = {
     "FingerprintParams": (
         "Identify a local audio file by its acoustic fingerprint.",
         [
-            ("path", "str", "Absolute local path."),
+            (
+                "path",
+                "str?",
+                "Absolute local path. Null means 'use the file for transferId' "
+                "— the same contract as SpectralRequestParams, so the Downloads "
+                "screen can verify a finished file it knows only by transfer.",
+            ),
+            (
+                "transferId",
+                "str?",
+                "Identify the completed file for this transfer. Ignored if "
+                "`path` is given; refused while the transfer has not finished.",
+            ),
             (
                 "durationLimit",
                 "int?",
