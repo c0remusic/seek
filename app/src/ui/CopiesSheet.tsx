@@ -25,6 +25,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Release } from '../domain/types.ts';
 import { completeness } from '../domain/bestSources.ts';
+import { alignTracklist } from '../domain/alignTracklist.ts';
+import type { WantTrack } from '../../../shared/protocol.ts';
 import { count, fileSize, speed } from '../domain/format.ts';
 import { worstAssessment } from '../domain/assessment.ts';
 import { FormatBadge } from './rows.tsx';
@@ -134,7 +136,7 @@ function CopyRow({
 }
 
 export function CopiesSheet({
-  target, copies, catalogueTracks, peers, onQueue, onClose,
+  target, copies, catalogueTracks, expectedTracklist, peers, onQueue, onClose,
 }: {
   /** The release whose card was clicked. */
   target: Release;
@@ -142,6 +144,8 @@ export function CopiesSheet({
   copies: Release[];
   /** MusicBrainz's track count, when the artwork lookup matched. */
   catalogueTracks?: number | null;
+  /** The chosen release's own tracks, when the search carried them. */
+  expectedTracklist?: WantTrack[] | null;
   peers?: PeerLookup;
   onQueue(copy: Release): void;
   onClose(): void;
@@ -197,6 +201,19 @@ export function CopiesSheet({
     () => completeness(shown, catalogueTracks),
     [shown, catalogueTracks],
   );
+
+  /* The one alignment this sheet allows itself, and it is NOT the copy-to-copy
+   * matching the header forbids: the searched release named its own tracks,
+   * and asking "which of those titles appear in the fullest copy's filenames"
+   * is a claim against a fixed catalogue list, not between two rips. Wording
+   * stays honest about the mechanism — "not seen in the filenames", never
+   * "absent" — because a badly named rip defeats any title match. */
+  const missing = useMemo(() => {
+    if (!expectedTracklist || expectedTracklist.length === 0 || !state) return [];
+    return alignTracklist(expectedTracklist, state.fullest.files)
+      .filter((t) => !t.covered)
+      .map((t) => t.track);
+  }, [expectedTracklist, state]);
 
   /* Hand focus back to the chip that opens this release's comparison, so
    * closing does not dump a keyboard user on <body>, several hundred results
@@ -351,6 +368,17 @@ export function CopiesSheet({
                 which is the whole record, so open a copy to see what is actually in it.
               </>
             )}
+          </p>
+        )}
+
+        {missing.length > 0 && (
+          <p className="sheet__note" data-tone="warn">
+            Of the {expectedTracklist!.length} tracks the searched release lists,{' '}
+            {missing.length === 1 ? 'one is' : `${missing.length} are`} not seen in the
+            fullest copy&apos;s filenames:{' '}
+            {missing.map((t) => (t.rawPosition ? `${t.rawPosition} ` : '') + t.title).join(' · ')}.
+            A badly named rip can hide a track that is really there — open the copy
+            and read its files before ruling it out.
           </p>
         )}
 

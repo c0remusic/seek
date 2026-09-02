@@ -555,6 +555,7 @@ export function SearchView({
         onBrowse={onBrowse}
         artwork={artwork}
         expectedTracks={session.expectedTracks}
+        expectedTracklist={session.expectedTracklist}
         library={library}
         peers={peers}
         onContext={onContext}
@@ -599,6 +600,7 @@ export function SearchView({
           target={comparing}
           copies={copiesOf(comparing, copyGroups)}
           catalogueTracks={catalogueTracks(comparing.id)}
+          expectedTracklist={session.expectedTracklist}
           peers={peers}
           onQueue={(copy) => { queueRelease(copy); setComparing(null); }}
           onClose={() => setComparing(null)}
