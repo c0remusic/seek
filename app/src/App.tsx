@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './ui/Sidebar.tsx';
 import { ErrorBoundary } from './ui/ErrorBoundary.tsx';
 import { UpdateBanner } from './ui/UpdateBanner.tsx';
+import { Notice } from './ui/Notice.tsx';
 import type { ConnectionStatus, Section } from './ui/Sidebar.tsx';
 import type { SearchSession } from './data/searchStore.ts';
 import type { SidecarClient } from './data/sidecarClient.ts';
@@ -803,6 +804,7 @@ export default function App() {
         onInstall={updates.install}
         onDismiss={updates.dismiss}
       />
+      <Notice />
       <ContextMenu request={menu} onClose={() => setMenu(null)} />
       <CommandPalette
         open={paletteOpen}
