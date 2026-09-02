@@ -44,9 +44,10 @@ function fakeClient(): FakeClient {
     },
     on(event, fn) {
       const set = listeners.get(event) ?? new Set();
-      set.add(fn);
+      // Same erasure the real client performs: one untyped registry.
+      set.add(fn as (data: unknown) => void);
       listeners.set(event, set);
-      return () => set.delete(fn);
+      return () => set.delete(fn as (data: unknown) => void);
     },
     onPhase: () => () => {},
     phase: 'open',

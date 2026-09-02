@@ -30,8 +30,12 @@ afterEach(cleanup);
 function batch(query: string): WireSearchResultData {
   return {
     searchId: 1,
+    private: false,
+    receivedAt: 0,
     peer: {
       username: 'a-peer', freeSlots: true, advertisedSpeed: 800_000, queueLength: 0,
+      // Present-but-null, as the wire validator demands of every key.
+      files: null, folders: null, country: null,
     },
     files: [1, 2, 3].map((n) => ({
       path: `music\\${query}\\0${n} ${query} track ${n}.flac`,

@@ -2,54 +2,34 @@
  * Seek — the one file that knows both the wire and the domain.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AGENTS.md §"The seam": `shared/protocol.ts` is core's; `app/src/domain/` is
- * ours; this adapter is the only join. Keep it thin and keep it honest — if the
- * wire changes shape, it changes HERE and nowhere else.
+ * The seam: `shared/protocol.ts` is core's; `app/src/domain/` is ours; this
+ * adapter is the only join. Keep it thin and keep it honest — if the wire
+ * changes shape, it changes HERE and nowhere else.
  */
 
 import type { PeerStats, SourceFile } from '../domain/types.ts';
 import { toSourceFile } from '../domain/ingest.ts';
 import type { RawFile } from '../domain/ingest.ts';
 
-/* The subset of `shared/protocol.ts` we actually consume, restated structurally
- * so the app builds whether or not the sibling package is on the path. Field
- * names are copied exactly from core's file; any drift is a real bug, not a
- * naming preference. */
+/* The generated protocol IS the wire shape — these used to be hand-copied
+ * mirrors "so the app builds whether or not the sibling package is on the
+ * path", but shared/ lives in this repo, is checked in, and is already
+ * imported elsewhere (domain/playlistImport.ts), so restating it only left
+ * room for drift. The Wire* aliases keep every call site readable: at a
+ * glance, `WirePeerStats` is the network's claim and `PeerStats` is ours. */
 
-export interface WireFileRef {
-  path: string;
-  size: number;
-  bitrate: number | null;
-  duration: number | null;
-  sampleRate: number | null;
-  bitDepth: number | null;
-  isVbr: boolean | null;
-}
+import type {
+  FileRef as WireFileRef,
+  PeerStats as WirePeerStats,
+  SearchResultEvent as WireSearchResultData,
+  SearchClosedEvent as WireSearchClosedData,
+  SearchCloseReason,
+} from '../../../shared/protocol.ts';
 
-export interface WirePeerStats {
-  username: string;
-  freeSlots: boolean;
-  advertisedSpeed: number;
-  queueLength: number;
-  files?: number | null;
-  folders?: number | null;
-  country?: string | null;
-}
-
-export interface WireSearchResultData {
-  searchId: number;
-  peer: WirePeerStats;
-  files: WireFileRef[];
-}
-
-export type SearchCloseReason = 'timeout' | 'result_cap' | 'stopped' | 'disconnected';
-
-export interface WireSearchClosedData {
-  searchId: number;
-  reason: SearchCloseReason;
-  resultCount: number;
-  peerCount: number;
-}
+export type {
+  WireFileRef, WirePeerStats, WireSearchResultData, WireSearchClosedData,
+  SearchCloseReason,
+};
 
 export type WireFrame =
   | { ev: 'search.started'; data: { searchId: number; query: string } }
