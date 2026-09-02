@@ -1925,6 +1925,48 @@ class AnalysisFailedEvent(TypedDict):
     reason: str
 
 
+class SpectralVerdict(TypedDict):
+    """
+    One remembered spectral finding — the summary of a past
+    analysis.result, persisted by the sidecar so the most expensive
+    answer the app computes survives a restart. Deliberately WITHOUT the
+    spectrum curve and heatmap: those are recomputable decoration, and a
+    client that wants the picture re-runs analysis.spectral on the path.
+    A verdict never outlives the file it judged: entries are pruned when
+    the file at `path` is gone or its size/mtime no longer match what
+    was analysed.
+    """
+    # Absolute local path of the analysed file.
+    path: str
+    # The transfer the file came from, when the original request supplied one.
+    # Transfer ids are stable hashes, so this still names the same download
+    # after a restart.
+    transferId: Optional[str]
+    assessment: "SpectralAssessment"
+    # 0..1, as on AnalysisResultEvent.
+    confidence: float
+    # Null when no shelf was found.
+    cutoffHz: Optional[float]
+    shelfDropDb: Optional[float]
+    shelfWidthHz: Optional[float]
+    impliedSourceKbps: Optional[int]
+    sampleRate: int
+    durationSeconds: float
+    declaredLossless: bool
+    decodedWith: str
+    # Unix seconds when the analysis finished.
+    analysedAt: int
+    # Byte size at analysis time — the staleness key.
+    fileSize: int
+    # mtime at analysis time — the other half of it.
+    fileMtime: float
+
+
+class SpectralVerdictsResult(TypedDict):
+    # Every verdict whose file is unchanged.
+    verdicts: List["SpectralVerdict"]
+
+
 class SharedFolder(TypedDict):
     """One folder offered to the network."""
     # Name peers see. Upstream keys shares on this, and it need not resemble
@@ -2881,6 +2923,26 @@ STRUCT_FIELDS: Dict[str, Tuple[Tuple[str, str, bool, bool], ...]] = {
         ("path", "str", False, True),
         ("reason", "str", False, False),
     ),
+    "SpectralVerdict": (
+        ("path", "str", False, False),
+        ("transferId", "str", False, True),
+        ("assessment", "SpectralAssessment", False, False),
+        ("confidence", "float", False, False),
+        ("cutoffHz", "float", False, True),
+        ("shelfDropDb", "float", False, True),
+        ("shelfWidthHz", "float", False, True),
+        ("impliedSourceKbps", "int", False, True),
+        ("sampleRate", "int", False, False),
+        ("durationSeconds", "float", False, False),
+        ("declaredLossless", "bool", False, False),
+        ("decodedWith", "str", False, False),
+        ("analysedAt", "int", False, False),
+        ("fileSize", "int", False, False),
+        ("fileMtime", "float", False, False),
+    ),
+    "SpectralVerdictsResult": (
+        ("verdicts", "SpectralVerdict", True, False),
+    ),
     "SharedFolder": (
         ("virtualName", "str", False, False),
         ("path", "str", False, False),
@@ -3000,6 +3062,7 @@ COMMANDS: Dict[str, Tuple[Optional[str], Optional[str]]] = {
     "transfer.clear": ("TransferIdsParams", None),
     "transfer.list": (None, "TransferListResult"),
     "analysis.spectral": ("SpectralRequestParams", "SpectralRequestResult"),
+    "analysis.verdicts": (None, "SpectralVerdictsResult"),
     "chat.rooms": (None, None),
     "chat.join": ("ChatJoinParams", None),
     "chat.leave": ("ChatLeaveParams", None),

@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import (
     discover as discover_mod, enrich, library as library_mod, logfile,
-    nicotine_import, registries, translate,
+    nicotine_import, registries, translate, verdicts as verdicts_mod,
 )
 from .protocol import PROTOCOL_VERSION
 
@@ -2944,7 +2944,27 @@ class CoreHost:
                 "requestId": request_id, "path": path, "reason": str(error),
             })
             return
+        # Archive the finding before announcing it. The store has its own lock
+        # (writing seek-state.json from this worker would race the main loop),
+        # and stat AFTER the analysis: if the file changed while being read,
+        # the fingerprint reflects the bytes now on disk and the next snapshot
+        # prunes the entry rather than vouching for a file nobody analysed.
+        try:
+            stat = os.stat(path)
+            self._verdicts().record(payload, stat.st_size, stat.st_mtime)
+        except OSError:
+            log.warning("analysed file vanished before it could be recorded: %s", path)
         self.bridge.broadcast("analysis.result", payload)
+
+    def _verdicts(self):
+        if getattr(self, "_verdict_store", None) is None:
+            self._verdict_store = verdicts_mod.VerdictStore(
+                os.path.join(self.data_folder, "spectral-verdicts.json")
+            )
+        return self._verdict_store
+
+    def _cmd_analysis_verdicts(self, _params):
+        return {"verdicts": self._verdicts().snapshot()}
 
     # -- chat --------------------------------------------------------------
     #
