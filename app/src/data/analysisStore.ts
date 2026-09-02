@@ -22,52 +22,56 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 
-export type SpectralAssessment =
-  | 'likely_lossless'
-  | 'possible_transcode'
-  | 'strong_signs_of_lossy_source'
-  | 'inconclusive';
+/* The wire shapes come from the generated protocol — the field-by-field
+ * commentary (why the averaged curve beats a heatmap, what the flattening
+ * order is) lives in shared/schema.py next to the fields themselves. */
+export type { SpectralAnalysis, SpectralAssessment } from '../../../shared/protocol.ts';
+import type { SpectralAnalysis, SpectralAssessment } from '../../../shared/protocol.ts';
 
-export interface SpectralAnalysis {
-  requestId: string;
+/**
+ * The persisted summary of a past analysis, reseeded from the sidecar on
+ * every connection. Deliberately without the spectrum curve and heatmap —
+ * those are recomputable decoration, and re-pressing Verify rebuilds them
+ * from the bytes still on disk. The verdict itself is the archive.
+ */
+export interface SpectralVerdict {
   path: string;
   transferId: string | null;
-  sampleRate: number;
-  channels: number;
-  durationSeconds: number;
-  decodedWith: string;
-  nyquistHz: number;
+  assessment: SpectralAssessment;
+  confidence: number;
   cutoffHz: number | null;
   shelfDropDb: number | null;
   shelfWidthHz: number | null;
-  confidence: number;
-  assessment: SpectralAssessment;
-  declaredLossless: boolean;
-  /** Best-guess source bitrate implied by where the lowpass sits. */
   impliedSourceKbps: number | null;
-  /* The averaged spectrum, emitted by the sidecar and rendered as the chart.
-   * Note this is frequency -> dB averaged over the analysed window, NOT a
-   * time x frequency heatmap like Spek's. For deciding whether an encoder
-   * lowpass exists the averaged curve is the sharper instrument: a cliff that
-   * would be a faint edge in a heatmap is unmistakable here. */
-  spectrumHz: number[];
-  spectrumDb: number[];
-  /* The Spek-style picture, flattened freq-major: index = f * heatmapTimeBins
-   * + t, low frequency first, dB peak-normalised to 0. Empty when rendering
-   * failed — the verdict never depends on it. */
-  heatmapDb: number[];
-  heatmapTimeBins: number;
-  heatmapFreqBins: number;
-  fftSize: number;
-  windowCount: number;
-  analysedSeconds: number;
+  sampleRate: number;
+  durationSeconds: number;
+  declaredLossless: boolean;
+  decodedWith: string;
+  analysedAt: number;
+  fileSize: number;
+  fileMtime: number;
 }
 
 export interface AnalysisEntry {
   state: 'running' | 'done' | 'failed';
   result?: SpectralAnalysis;
+  /** Present when the entry was reseeded from the archive instead. */
+  verdict?: SpectralVerdict;
   reason?: string;
+}
+
+/** What the chip and the explanation need, whichever shape the entry holds. */
+export type SpectralSummary = Pick<SpectralAnalysis,
+  'assessment' | 'confidence' | 'cutoffHz' | 'shelfDropDb' | 'shelfWidthHz'
+  | 'impliedSourceKbps' | 'declaredLossless' | 'nyquistHz'>;
+
+export function summaryOf(entry: AnalysisEntry): SpectralSummary | null {
+  if (entry.result) return entry.result;
+  if (!entry.verdict) return null;
+  // The archive stores the sample rate rather than repeating its half.
+  return { ...entry.verdict, nyquistHz: entry.verdict.sampleRate / 2 };
 }
 
 /** Human wording. Never definitive — see the enum's own note in the schema. */
@@ -86,7 +90,7 @@ export const ASSESSMENT_TONE: Record<SpectralAssessment, 'good' | 'warn' | 'bad'
 };
 
 /** Explain the arithmetic, because a verdict the user cannot check is a rumour. */
-export function explain(a: SpectralAnalysis): string {
+export function explain(a: SpectralSummary): string {
   const nyq = `${(a.nyquistHz / 1000).toFixed(1)} kHz`;
   if (a.cutoffHz === null) {
     return `No lowpass shelf found below ${nyq}. Content reaches the ceiling the `
@@ -145,6 +149,43 @@ export function useAnalysis(client: SidecarClient | null): AnalysisSession {
 
     return () => { offResult(); offFailed(); };
   }, [client]);
+
+  const gen = useSidecarGeneration(client);
+
+  useEffect(() => {
+    if (!client) return;
+    // Reseed from the archive: findings survive a restart on the sidecar side,
+    // and `gen` re-runs this after a reconnect for the same reason wantStore
+    // re-lists. A verdict never REPLACES a full result from this session —
+    // the session's answer is a superset of the archived one.
+    void client.request<{ verdicts: SpectralVerdict[] }>('analysis.verdicts')
+      .then((r) => {
+        const verdicts = r.verdicts ?? [];
+        if (verdicts.length === 0) return;
+        // Seed only empty or verdict-only slots: anything this session put
+        // there — a full result, a run in flight, even a failure — is fresher
+        // than the archive.
+        const vacant = (cur: AnalysisEntry | undefined) =>
+          !cur || (cur.state === 'done' && !cur.result);
+        setByPath((prev) => {
+          const next = new Map(prev);
+          for (const v of verdicts) {
+            if (vacant(next.get(v.path))) next.set(v.path, { state: 'done', verdict: v });
+          }
+          return next;
+        });
+        setByTransfer((prev) => {
+          const next = new Map(prev);
+          for (const v of verdicts) {
+            if (v.transferId && vacant(next.get(v.transferId))) {
+              next.set(v.transferId, { state: 'done', verdict: v });
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+  }, [client, gen]);
 
   const start = useCallback((params: { path: string | null; transferId: string | null }) => {
     if (!client) return;

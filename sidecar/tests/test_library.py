@@ -11,6 +11,7 @@
 # runs again — so the collection reports twice what you own, from a pair of
 # folders that are both perfectly reasonable. These tests pin that it does not.
 
+import json
 import os
 
 from seek_sidecar.library import Library, dedupe_roots
@@ -121,3 +122,94 @@ class TestScanCountsEachFileOnce:
         index = Library(str(tmp_path / "index.json"))
         state = index.scan([str(downloads), str(music)], read_tags=False)
         assert state["roots"] == [os.path.realpath(str(music))]
+
+
+class TestIncrementalScan:
+    """The index remembers each file's (mtime, size) and reuses its derived
+    fields, so a rescan's cost is proportional to what CHANGED — `_read_tags`
+    (a full mutagen parse) is the dominant cost and must not run again for a
+    file that has not moved. Aggregates are still rebuilt every scan; these
+    tests pin that reuse never changes what they say."""
+
+    def _counting_read_tags(self, monkeypatch):
+        import seek_sidecar.library as library_mod
+        calls = []
+        monkeypatch.setattr(library_mod, "_read_tags",
+                            lambda path: calls.append(path) or {})
+        return calls
+
+    def test_an_unchanged_file_is_not_read_twice(self, tmp_path, monkeypatch):
+        calls = self._counting_read_tags(monkeypatch)
+        _track(str(tmp_path / "Burial - Untrue"), "01 - Archangel.flac")
+        index = Library(str(tmp_path / "index.json"))
+
+        index.scan([str(tmp_path)], read_tags=True)
+        assert len(calls) == 1
+        index.scan([str(tmp_path)], read_tags=True)
+        assert len(calls) == 1  # nothing changed, nothing re-read
+        # And the reused record still aggregates identically.
+        release = next(r for r in index.releases() if r["release"] == "Untrue")
+        assert release["trackCount"] == 1
+        assert release["bytes"] == 16
+
+    def test_a_modified_file_is_re_read(self, tmp_path, monkeypatch):
+        calls = self._counting_read_tags(monkeypatch)
+        path = _track(str(tmp_path / "Burial - Untrue"), "01 - Archangel.flac")
+        index = Library(str(tmp_path / "index.json"))
+        index.scan([str(tmp_path)], read_tags=True)
+
+        with open(path, "wb") as handle:
+            handle.write(b"\1" * 64)  # different size: a real change
+        index.scan([str(tmp_path)], read_tags=True)
+        assert len(calls) == 2
+        release = next(r for r in index.releases() if r["release"] == "Untrue")
+        assert release["bytes"] == 64
+
+    def test_a_deleted_file_leaves_the_aggregates(self, tmp_path, monkeypatch):
+        self._counting_read_tags(monkeypatch)
+        keep = _track(str(tmp_path / "Burial - Untrue"), "01 - Archangel.flac")
+        gone = _track(str(tmp_path / "Burial - Untrue"), "02 - Near Dark.flac")
+        index = Library(str(tmp_path / "index.json"))
+        index.scan([str(tmp_path)], read_tags=True)
+        assert next(r for r in index.releases())["trackCount"] == 2
+
+        os.remove(gone)
+        index.scan([str(tmp_path)], read_tags=True)
+        release = next(r for r in index.releases())
+        assert release["trackCount"] == 1
+        assert release["bytes"] == os.path.getsize(keep)
+
+    def test_a_tagless_record_does_not_satisfy_a_tagged_scan(
+            self, tmp_path, monkeypatch):
+        """read_tags=False derives from the path only; its record never saw the
+        tags a tagged scan is asking for, so it must be re-read."""
+        calls = self._counting_read_tags(monkeypatch)
+        _track(str(tmp_path / "Burial - Untrue"), "01 - Archangel.flac")
+        index = Library(str(tmp_path / "index.json"))
+
+        index.scan([str(tmp_path)], read_tags=False)
+        assert calls == []
+        index.scan([str(tmp_path)], read_tags=True)
+        assert len(calls) == 1
+        # The tagged record then serves a later tagless scan fine.
+        index.scan([str(tmp_path)], read_tags=False)
+        assert len(calls) == 1
+
+    def test_an_index_predating_file_records_rescans_in_full(
+            self, tmp_path, monkeypatch):
+        calls = self._counting_read_tags(monkeypatch)
+        _track(str(tmp_path / "Burial - Untrue"), "01 - Archangel.flac")
+        index_path = str(tmp_path / "index.json")
+        index = Library(index_path)
+        index.scan([str(tmp_path)], read_tags=True)
+
+        # Strip the files field, as an index written by an older build.
+        with open(index_path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        del data["files"]
+        with open(index_path, "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+
+        reopened = Library(index_path)
+        reopened.scan([str(tmp_path)], read_tags=True)
+        assert len(calls) == 2  # nothing reusable: one full read, once

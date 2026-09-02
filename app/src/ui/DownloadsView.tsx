@@ -26,7 +26,7 @@ import type { SortKey } from '../domain/transferOrder.ts';
 import type { Density } from './ViewMenu.tsx';
 import type { AnalysisSession } from '../data/analysisStore.ts';
 import type { SidecarClient } from '../data/sidecarClient.ts';
-import { ASSESSMENT_LABEL, ASSESSMENT_TONE, explain } from '../data/analysisStore.ts';
+import { ASSESSMENT_LABEL, ASSESSMENT_TONE, explain, summaryOf } from '../data/analysisStore.ts';
 import { identityTone } from '../data/identifyStore.ts';
 import type { IdentifySession } from '../data/identifyStore.ts';
 import { Spectrum } from './Spectrum.tsx';
@@ -86,7 +86,9 @@ function Verdict({
     return <span className="verify verify--failed" title={entry.reason}>Could not analyse</span>;
   }
 
-  const a = entry.result!;
+  // Either this session's full result or a verdict reseeded from the archive
+  // — the chip reads the same from both.
+  const a = summaryOf(entry)!;
   return (
     <button
       type="button"
@@ -94,7 +96,13 @@ function Verdict({
       data-tone={ASSESSMENT_TONE[a.assessment]}
       aria-expanded={open}
       title={explain(a)}
-      onPointerDown={onToggle}
+      onPointerDown={() => {
+        onToggle();
+        // An archived verdict has no chart: the curve is recomputable
+        // decoration the sidecar deliberately does not persist. Opening the
+        // sheet on one re-runs the analysis to redraw it.
+        if (!open && !entry.result) analysis.analyseTransfer(id);
+      }}
     >
       {ASSESSMENT_LABEL[a.assessment]}
       <span className="verify__caret" aria-hidden>{open ? '\u2303' : '\u2304'}</span>

@@ -23,6 +23,7 @@ import { EMPTY_FILTERS } from '../domain/types.ts';
 import type { Filters, GroupBy, SortKey, SourceFile } from '../domain/types.ts';
 import { useSearchTabs } from './searchTabs.ts';
 import type { SearchSession, SearchSnapshot } from './searchStore.ts';
+import { GLOBAL_SCOPE } from './mockSidecar.ts';
 
 /* RTL's automatic cleanup only registers when Vitest runs with `globals: true`,
    and this project deliberately does not. Explicit is fine and one line. */
@@ -49,6 +50,7 @@ function useFakeSession(): SearchSession {
     query, files, peers: [], filters, groupBy, sort,
     expanded: new Set(), closedReason: null, tick: 0, expectedTracks,
     expectedTracklist: null,
+    scope: GLOBAL_SCOPE,
   }), [query, files, filters, groupBy, sort, expectedTracks]);
 
   const restore = useCallback((snap: SearchSnapshot) => {

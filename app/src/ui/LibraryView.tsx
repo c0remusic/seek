@@ -12,6 +12,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LibrarySession } from '../data/libraryStore.ts';
+import { verdictsUnder } from '../data/libraryStore.ts';
+import type { AnalysisEntry, AnalysisSession } from '../data/analysisStore.ts';
+import { ASSESSMENT_LABEL, ASSESSMENT_TONE } from '../data/analysisStore.ts';
 import { fileSize } from '../domain/format.ts';
 import { canChooseFolder, chooseFolder } from '../data/choose.ts';
 import { IconLibrary, IconSearch } from '../icons/index.tsx';
@@ -61,16 +64,47 @@ function Cover({ r, artwork, px }: { r: LibraryRelease; artwork?: ArtworkSession
   );
 }
 
+/**
+ * The spectral verdicts recorded for files under this release's folder — the
+ * bridge between the Downloads-side check and the shelf. Shown only when
+ * something WAS analysed: an unmarked release means "never checked", never
+ * "checked and fine", and inventing the latter is exactly the
+ * confidently-wrong behaviour this app exists to avoid.
+ */
+function VerdictMark({ folder, byPath }: {
+  folder: string;
+  byPath?: Map<string, AnalysisEntry>;
+}) {
+  const found = useMemo(
+    () => (byPath ? verdictsUnder(folder, byPath) : { worst: null, files: [] }),
+    [folder, byPath],
+  );
+  if (!found.worst) return null;
+  const title = found.files
+    .map((f) => `${f.path.split(/[\\/]/).pop()}: ${ASSESSMENT_LABEL[f.assessment]}`)
+    .join('\n');
+  return (
+    <span
+      className="libverdict"
+      data-tone={ASSESSMENT_TONE[found.worst]}
+      title={title}
+    >
+      {ASSESSMENT_LABEL[found.worst]}
+    </span>
+  );
+}
+
 /** The column order the table shows. Kept here so the header and the rows
  *  cannot drift apart — they read the same list. */
 const TABLE_COLUMNS = ['Release', 'Artist', 'Tracks', 'Size', 'Format', 'Year'] as const;
 
 function LibraryTable({
-  rows, artwork, onSearch,
+  rows, artwork, onSearch, verdicts,
 }: {
   rows: LibraryRelease[];
   artwork?: ArtworkSession;
   onSearch(query: string): void;
+  verdicts?: Map<string, AnalysisEntry>;
 }) {
   return (
     <div className="libtable">
@@ -88,6 +122,7 @@ function LibraryTable({
           <span className="libtable__name">
             <Cover r={r} artwork={artwork} px={22} />
             <span className="libtable__title">{r.release || r.folder}</span>
+            <VerdictMark folder={r.folder} byPath={verdicts} />
           </span>
           <span className="libtable__cell">{r.artist || '—'}</span>
           <span className="libtable__cell tnum">{r.trackCount}</span>
@@ -101,11 +136,12 @@ function LibraryTable({
 }
 
 function LibraryGrid({
-  rows, artwork, onSearch,
+  rows, artwork, onSearch, verdicts,
 }: {
   rows: LibraryRelease[];
   artwork?: ArtworkSession;
   onSearch(query: string): void;
+  verdicts?: Map<string, AnalysisEntry>;
 }) {
   return (
     <div className="libgrid">
@@ -124,6 +160,7 @@ function LibraryGrid({
             {r.trackCount} · {fileSize(r.bytes)}
             {r.formats && <> · {r.formats}</>}
           </span>
+          <VerdictMark folder={r.folder} byPath={verdicts} />
         </button>
       ))}
     </div>
@@ -147,11 +184,12 @@ function when(seconds: number): string {
  * better part of an hour and most of it on records nobody asked about.
  */
 function ReleaseRow({
-  r, library, onSearch,
+  r, library, onSearch, verdicts,
 }: {
   r: LibraryRelease;
   library: LibrarySession;
   onSearch(query: string): void;
+  verdicts?: Map<string, AnalysisEntry>;
 }) {
   const gap = library.gaps.get(r.key);
   const missing = gap && gap !== 'looking' ? gap.tracks.filter((t) => !t.have) : [];
@@ -165,6 +203,7 @@ function ReleaseRow({
         </span>
         <span className="browse__stat tnum">{r.trackCount} tracks</span>
         <span className="browse__stat tnum">{fileSize(r.bytes)}</span>
+        <VerdictMark folder={r.folder} byPath={verdicts} />
         {gap === 'looking' ? (
           <span className="verify verify--busy">Checking…</span>
         ) : gap && !gap.matched ? (
@@ -228,7 +267,7 @@ function ReleaseRow({
 }
 
 export function LibraryView({
-  library, onSearch, density, onDensity, artwork,
+  library, onSearch, density, onDensity, artwork, analysis,
 }: {
   library: LibrarySession;
   onSearch(query: string): void;
@@ -238,6 +277,8 @@ export function LibraryView({
   density: Density;
   onDensity(d: Density): void;
   artwork?: ArtworkSession;
+  /** Spectral findings, shown per release when files under it were analysed. */
+  analysis?: AnalysisSession;
 }) {
   const [filter, setFilter] = useState('');
   const [readTags, setReadTags] = useState(true);
@@ -423,9 +464,15 @@ export function LibraryView({
             </div>
 
             {density === 'grid' ? (
-              <LibraryGrid rows={shown.slice(0, 500)} artwork={artwork} onSearch={onSearch} />
+              <LibraryGrid
+                rows={shown.slice(0, 500)} artwork={artwork} onSearch={onSearch}
+                verdicts={analysis?.byPath}
+              />
             ) : density === 'table' ? (
-              <LibraryTable rows={shown.slice(0, 500)} artwork={artwork} onSearch={onSearch} />
+              <LibraryTable
+                rows={shown.slice(0, 500)} artwork={artwork} onSearch={onSearch}
+                verdicts={analysis?.byPath}
+              />
             ) : (
               /* Comfortable and compact are the SAME rows at two paddings — the
                  row already carries the gap-finding and the MusicBrainz match,
@@ -433,7 +480,10 @@ export function LibraryView({
                  things to keep in step for no gain. CSS does the difference. */
               <ul className="wish" data-density={density}>
                 {shown.slice(0, 500).map((r) => (
-                  <ReleaseRow key={r.key} r={r} library={library} onSearch={onSearch} />
+                  <ReleaseRow
+                    key={r.key} r={r} library={library} onSearch={onSearch}
+                    verdicts={analysis?.byPath}
+                  />
                 ))}
               </ul>
             )}

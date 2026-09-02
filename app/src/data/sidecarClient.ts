@@ -24,8 +24,9 @@
  * needs nothing.
  */
 
-import type { Sidecar, SidecarHandlers } from './mockSidecar.ts';
+import type { SearchScope, Sidecar, SidecarHandlers } from './mockSidecar.ts';
 import type { WireSearchClosedData, WireSearchResultData } from './adapt.ts';
+import type { EventName, EventPayload } from '../../../shared/protocol.ts';
 
 export interface SidecarEndpoint {
   host: string;
@@ -44,8 +45,14 @@ interface Pending {
 export interface SidecarClient extends Sidecar {
   /** Send a command and await its reply. Rejects on error frames and timeout. */
   request<T = unknown>(cmd: string, params?: Record<string, unknown>): Promise<T>;
-  /** Subscribe to an event name. Returns an unsubscribe function. */
-  on(event: string, fn: (data: unknown) => void): () => void;
+  /**
+   * Subscribe to a wire event. Returns an unsubscribe function.
+   *
+   * Typed against the generated protocol so a listener's `data` is the
+   * event's real payload — the `as SomeShape` casts this used to force on
+   * every store were each a place the wire could drift unnoticed.
+   */
+  on<E extends EventName>(event: E, fn: (data: EventPayload[E]) => void): () => void;
   onPhase(fn: (phase: ConnectionPhase) => void): () => void;
   readonly phase: ConnectionPhase;
   /**
@@ -398,7 +405,7 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
       /* Replay rate is a fixture concept. The network sets its own pace. */
     },
 
-    start(query: string, next: SidecarHandlers) {
+    start(query: string, next: SidecarHandlers, scope?: SearchScope) {
       handlers = next;
       running = true;
       searchId = null;
@@ -410,9 +417,9 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
       // keys, so this object must match the struct exactly.
       void request<{ searchId: number }>('search.start', {
         query,
-        mode: 'global',
-        room: null,
-        users: [],
+        mode: scope?.mode ?? 'global',
+        room: scope?.room ?? null,
+        users: scope?.users ?? [],
         resultCap: null,
         timeoutSeconds: null,
       })
@@ -451,8 +458,13 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
         set = new Set();
         listeners.set(event, set);
       }
-      set.add(fn);
-      return () => set?.delete(fn);
+      // The registry is untyped on purpose — one map for every event — so the
+      // per-event payload type is erased on the way in. The generic signature
+      // above is where the contract lives; dispatch hands back whatever the
+      // wire sent for that name.
+      const erased = fn as (data: unknown) => void;
+      set.add(erased);
+      return () => set?.delete(erased);
     },
 
     onPhase,

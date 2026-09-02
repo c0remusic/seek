@@ -29,31 +29,11 @@ import { parseTitle, searchQuery } from '../domain/parseTitle.ts';
 import { isVariousArtists, stripReleaseNoise } from '../domain/text.ts';
 import type { TitleSource } from '../domain/parseTitle.ts';
 
-export type DiscoverKind = 'track' | 'release' | 'artist' | 'label';
-
-/** What the sidecar sends. Mirrors DiscoverParsed in shared/schema.py. */
-export interface WireParsed {
-  requestId: string;
-  url: string;
-  sourceKind: string;
-  kind: DiscoverKind;
-  rawTitle: string;
-  channel: string;
-  artist: string;
-  title: string;
-  album: string | null;
-  year: number | null;
-  label: string | null;
-  catalogNumber: string | null;
-  artworkUri: string | null;
-  duration: number | null;
-  genres: string[];
-  tracklist: Array<{
-    position: number; title: string; artist: string; duration: number | null;
-    disc: number | null; rawPosition: string | null;
-  }>;
-  providerUrl: string | null;
-}
+/* What the sidecar sends — the generated DiscoverParsed itself, aliased so
+ * every call site keeps saying "wire". */
+export type { DiscoverKind } from '../../../shared/protocol.ts';
+import type { DiscoverKind, DiscoverParsed as WireParsed } from '../../../shared/protocol.ts';
+export type { DiscoverParsed as WireParsed } from '../../../shared/protocol.ts';
 
 export interface DiscoverPreview {
   url: string;

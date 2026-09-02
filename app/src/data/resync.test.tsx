@@ -44,9 +44,10 @@ function fakeClient(): FakeClient {
     },
     on(event, fn) {
       const set = listeners.get(event) ?? new Set();
-      set.add(fn);
+      // Same erasure the real client performs: one untyped registry.
+      set.add(fn as (data: unknown) => void);
       listeners.set(event, set);
-      return () => set.delete(fn);
+      return () => set.delete(fn as (data: unknown) => void);
     },
     onPhase: () => () => {},
     phase: 'open',
@@ -87,7 +88,7 @@ function mkTransfer(id: string, over: Partial<Transfer> = {}): Transfer {
     id, direction: 'download', username: 'u', path: `music\\${id}.flac`,
     localFolder: null, size: 100, bytesDone: 0, state: 'queued', speed: 0,
     averageSpeed: 0, queuePosition: null, secondsLeft: null, secondsElapsed: 0,
-    stalled: false, secondsSinceProgress: 0, finishedAt: null, error: null,
+    stalled: false, secondsSinceProgress: 0, finishedAt: null, error: null, file: null,
     ...over,
   };
 }

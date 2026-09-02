@@ -2054,6 +2054,43 @@ STRUCTS = {
             ("reason", "str", "Developer-facing text. Not for display."),
         ],
     ),
+    "SpectralVerdict": (
+        "One remembered spectral finding — the summary of a past\n"
+        "analysis.result, persisted by the sidecar so the most expensive\n"
+        "answer the app computes survives a restart. Deliberately WITHOUT the\n"
+        "spectrum curve and heatmap: those are recomputable decoration, and a\n"
+        "client that wants the picture re-runs analysis.spectral on the path.\n"
+        "A verdict never outlives the file it judged: entries are pruned when\n"
+        "the file at `path` is gone or its size/mtime no longer match what\n"
+        "was analysed.",
+        [
+            ("path", "str", "Absolute local path of the analysed file."),
+            (
+                "transferId",
+                "str?",
+                "The transfer the file came from, when the original request "
+                "supplied one. Transfer ids are stable hashes, so this still "
+                "names the same download after a restart.",
+            ),
+            ("assessment", "SpectralAssessment", ""),
+            ("confidence", "float", "0..1, as on AnalysisResultEvent."),
+            ("cutoffHz", "float?", "Null when no shelf was found."),
+            ("shelfDropDb", "float?", ""),
+            ("shelfWidthHz", "float?", ""),
+            ("impliedSourceKbps", "int?", ""),
+            ("sampleRate", "int", ""),
+            ("durationSeconds", "float", ""),
+            ("declaredLossless", "bool", ""),
+            ("decodedWith", "str", ""),
+            ("analysedAt", "int", "Unix seconds when the analysis finished."),
+            ("fileSize", "int", "Byte size at analysis time — the staleness key."),
+            ("fileMtime", "float", "mtime at analysis time — the other half of it."),
+        ],
+    ),
+    "SpectralVerdictsResult": (
+        "",
+        [("verdicts", "SpectralVerdict[]", "Every verdict whose file is unchanged.")],
+    ),
     "SharedFolder": (
         "One folder offered to the network.",
         [
@@ -2379,6 +2416,12 @@ COMMANDS = {
         "Queue a post-download spectral analysis. Returns immediately.",
         "SpectralRequestParams",
         "SpectralRequestResult",
+    ),
+    "analysis.verdicts": (
+        "Every persisted spectral verdict whose file is still the file that "
+        "was analysed. Ask once per connection to reseed the client's memory.",
+        None,
+        "SpectralVerdictsResult",
     ),
     "chat.rooms": (
         "Ask the server for the room list. Answers on the chat.rooms event.",

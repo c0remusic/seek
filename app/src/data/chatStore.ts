@@ -16,26 +16,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { reportFailure } from './noticeStore.ts';
 
-export type ChatScope = 'room' | 'private';
-
-export interface ChatMessage {
-  scope: ChatScope;
-  target: string;
-  username: string;
-  message: string;
-  outgoing: boolean;
-  kind: 'message' | 'action' | 'local' | 'hilite';
-  mentioned: boolean;
-  timestamp: number;
-}
-
-export interface ChatRoom {
-  name: string;
-  userCount: number;
-  joined: boolean;
-  private: boolean;
-}
+/* Wire shapes from the generated protocol, re-exported for the views. */
+export type { ChatMessage, ChatRoom, ChatScope } from '../../../shared/protocol.ts';
+import type { ChatMessage, ChatRoom, ChatScope } from '../../../shared/protocol.ts';
 
 /** A room or a person, with its backlog. */
 export interface Conversation {
@@ -122,7 +107,7 @@ export function useChatSession(
     });
 
     const offRooms = client.on('chat.rooms', (data) => {
-      setRooms((data as { rooms: ChatRoom[] }).rooms ?? []);
+      setRooms(data.rooms ?? []);
     });
 
     const offMembers = client.on('chat.members', (data) => {
@@ -165,12 +150,12 @@ export function useChatSession(
 
   const join = useCallback((room: string) => {
     if (!available) return;
-    void client?.request('chat.join', { room }).catch(() => {});
+    void client?.request('chat.join', { room }).catch(reportFailure(`join ${room}`));
     setActive(key('room', room));
   }, [client, available, setActive]);
 
   const leave = useCallback((room: string) => {
-    void client?.request('chat.leave', { room }).catch(() => {});
+    void client?.request('chat.leave', { room }).catch(reportFailure(`leave ${room}`));
     setMap((prev) => {
       const out = new Map(prev);
       out.delete(key('room', room));
@@ -181,7 +166,8 @@ export function useChatSession(
 
   const openPrivate = useCallback((username: string) => {
     if (!available) return;
-    void client?.request('chat.open', { username }).catch(() => {});
+    void client?.request('chat.open', { username })
+      .catch(reportFailure(`open a chat with ${username}`));
     setMap((prev) => {
       if (prev.has(key('private', username))) return prev;
       const out = new Map(prev);
@@ -202,7 +188,7 @@ export function useChatSession(
     // one ingest path means the transcript cannot diverge from the server's.
     void client?.request('chat.say', {
       scope: conv.scope, target: conv.target, message: trimmed,
-    }).catch(() => {});
+    }).catch(reportFailure('send that message'));
   }, [client, active, available, map]);
 
   const conversations = useMemo(

@@ -107,9 +107,8 @@ const VENV_PYTHON: &str = "sidecar/.venv/Scripts/python.exe";
 fn sidecar_command(repo: &std::path::Path) -> Command {
     // `join_paths`, not a formatted string: PYTHONPATH's separator is `:` on
     // unix and `;` on Windows.
-    let pythonpath =
-        std::env::join_paths([repo.join("upstream"), std::path::PathBuf::from(".")])
-            .expect("repo paths never contain the PYTHONPATH separator");
+    let pythonpath = std::env::join_paths([repo.join("upstream"), std::path::PathBuf::from(".")])
+        .expect("repo paths never contain the PYTHONPATH separator");
     let mut cmd = Command::new(repo.join(VENV_PYTHON));
     cmd.arg("-m")
         .arg("seek_sidecar")
@@ -273,8 +272,10 @@ fn spawn_sidecar() -> Result<(Child, Endpoint), String> {
 #[tauri::command]
 fn sidecar_endpoint(state: tauri::State<'_, Sidecar>) -> Option<Endpoint> {
     let value = state.0.lock().ok().and_then(|sup| sup.endpoint.clone());
-    eprintln!("seek: sidecar_endpoint invoked -> {}",
-              if value.is_some() { "Some" } else { "None" });
+    eprintln!(
+        "seek: sidecar_endpoint invoked -> {}",
+        if value.is_some() { "Some" } else { "None" }
+    );
     value
 }
 
@@ -306,7 +307,7 @@ fn do_restart(app: &tauri::AppHandle, sup: &mut Supervisor) -> Result<Endpoint, 
             sup.error = None;
             if let Ok(json) = serde_json::to_string(&endpoint) {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.eval(&format!("window.__SEEK_SIDECAR__={json};"));
+                    let _ = window.eval(format!("window.__SEEK_SIDECAR__={json};"));
                 }
             }
             let _ = app.emit("sidecar-ready", endpoint.clone());
@@ -326,7 +327,10 @@ fn restart_sidecar(
     app: tauri::AppHandle,
     state: tauri::State<'_, Sidecar>,
 ) -> Result<Endpoint, String> {
-    let mut sup = state.0.lock().map_err(|_| "engine state poisoned".to_string())?;
+    let mut sup = state
+        .0
+        .lock()
+        .map_err(|_| "engine state poisoned".to_string())?;
     sup.auto_restarts_left = AUTO_RESTARTS;
     do_restart(&app, &mut sup)
 }
@@ -363,7 +367,8 @@ fn spawn_watchdog(app: tauri::AppHandle) {
                         continue; // keep watching: a manual restart re-arms us
                     }
                     sup.auto_restarts_left -= 1;
-                    backoff = 1u64 << (AUTO_RESTARTS - 1 - sup.auto_restarts_left); // 1, 2, 4 s
+                    backoff = 1u64 << (AUTO_RESTARTS - 1 - sup.auto_restarts_left);
+                    // 1, 2, 4 s
                 }
             }
         } // NEVER sleep holding the lock: Exit needs it to kill.
@@ -489,7 +494,7 @@ pub fn run() {
             if let Some(endpoint) = endpoint.clone() {
                 if let Ok(json) = serde_json::to_string(&endpoint) {
                     if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.eval(&format!("window.__SEEK_SIDECAR__={json};"));
+                        let _ = window.eval(format!("window.__SEEK_SIDECAR__={json};"));
                     }
                 }
                 let _ = app.emit("sidecar-ready", endpoint);

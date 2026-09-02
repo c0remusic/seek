@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { reportFailure } from './noticeStore.ts';
 import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import type { WantEntry, WantStatus } from './wantStore.ts';
 
@@ -120,7 +121,7 @@ export function useSessions(
     if (!client) return;
     void client.request<{ sessions: DigSession[] }>(cmd, params)
       .then((r) => setSessions(r.sessions ?? []))
-      .catch(() => {});
+      .catch(reportFailure('update the dig sessions'));
   }, [client]);
 
   return {

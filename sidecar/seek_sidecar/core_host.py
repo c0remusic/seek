@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import (
     discover as discover_mod, enrich, library as library_mod, logfile,
-    nicotine_import, registries, translate,
+    nicotine_import, registries, translate, verdicts as verdicts_mod,
 )
 from .protocol import PROTOCOL_VERSION
 
@@ -133,13 +133,31 @@ class CoreHost:
         self._folder_requests = {}   # (username, folderPath) -> request info
         self._peer_extra = {}        # username -> {"files", "folders", "country"}
 
-        # Spectral analysis is CPU-bound (decode + FFT) and must never run on
-        # the pynicotine main loop — blocking it stalls every transfer and every
-        # search result in flight. One worker: analysis is a background
-        # curiosity, not something worth contending for cores with playback or
-        # the network thread.
-        self._analysis_pool = ThreadPoolExecutor(
+        # Background work is split across three single-worker pools by what
+        # each task actually waits on. They used to share ONE worker, and the
+        # mix was the problem, not the worker count: an artwork lookup sleeps
+        # ~1 s in the MusicBrainz gate (enrich._Gate), a library scan walks a
+        # disk for minutes, and either one held the only thread while a
+        # spectral analysis the user just asked for sat in the queue. One
+        # worker PER KIND keeps each queue honest — analysis is still a
+        # background curiosity not worth contending for cores, lookups are
+        # still rate-limited to ~1 req/s, but neither waits on the other.
+        #
+        # CPU: decode + FFT (spectral analysis, preview excerpts). Must never
+        # run on the pynicotine main loop — blocking it stalls every transfer
+        # and every search result in flight.
+        self._cpu_pool = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="SeekSpectral"
+        )
+        # Network: MusicBrainz/Cover Art lookups (gaps, artwork, metadata).
+        # The rate gate sleeps in here, where it only delays its own kind.
+        self._lookup_pool = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="SeekLookup"
+        )
+        # Disk: the library scan. A walk over a network volume can take
+        # minutes, which is exactly why it gets a thread nothing else needs.
+        self._scan_pool = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="SeekScan"
         )
 
         # Discovery gets its own worker rather than sharing the one above.
@@ -331,7 +349,9 @@ class CoreHost:
         except Exception:
             log.exception("error during core shutdown")
 
-        self._analysis_pool.shutdown(wait=False)
+        self._cpu_pool.shutdown(wait=False)
+        self._lookup_pool.shutdown(wait=False)
+        self._scan_pool.shutdown(wait=False)
         self._discover_pool.shutdown(wait=False)
 
         try:
@@ -1027,7 +1047,7 @@ class CoreHost:
         """Decode an excerpt on the worker pool; the audio arrives as an event."""
         path = self._resolve_local_file(params)
         request_id = registries.transfer_id(path, "preview")
-        self._analysis_pool.submit(
+        self._cpu_pool.submit(
             self._run_preview, request_id, path,
             params.get("startSeconds"), params.get("seconds"),
         )
@@ -1318,7 +1338,7 @@ class CoreHost:
         key = params.get("key") or ""
         if not release:
             raise CommandError("bad_request", "nothing to look up")
-        self._analysis_pool.submit(self._run_gaps, key, artist, release)
+        self._lookup_pool.submit(self._run_gaps, key, artist, release)
         return {"requestId": enrich.cache_key(artist, release)}
 
     def _run_gaps(self, key, artist, release):
@@ -1370,7 +1390,7 @@ class CoreHost:
         # instead of it, so a scan cannot silently forget where things land.
         roots = [self._download_root()] + list(params.get("roots") or [])
         read_tags = params.get("readTags")
-        self._analysis_pool.submit(
+        self._scan_pool.submit(
             self._run_library_scan, roots, True if read_tags is None else bool(read_tags),
         )
         state = index.state()
@@ -1439,7 +1459,7 @@ class CoreHost:
         if not release and not artist:
             raise CommandError("bad_request", "nothing to look up")
         request_id = enrich.cache_key(artist, release)
-        self._analysis_pool.submit(self._run_artwork, request_id, key, artist, release)
+        self._lookup_pool.submit(self._run_artwork, request_id, key, artist, release)
         return {"requestId": request_id}
 
     def _run_artwork(self, request_id, key, artist, release):
@@ -1471,7 +1491,7 @@ class CoreHost:
             raise CommandError("unsupported", "external lookups are switched off")
         path = self._resolve_local_file(params)
         request_id = registries.transfer_id(path, "meta")
-        self._analysis_pool.submit(
+        self._lookup_pool.submit(
             self._run_metadata, request_id, path, params.get("transferId"),
         )
         return {"requestId": request_id}
@@ -2930,7 +2950,7 @@ class CoreHost:
         transfer_id = params.get("transferId")
 
         request_id = registries.transfer_id(path, str(transfer_id or ""))
-        self._analysis_pool.submit(self._run_analysis, request_id, path, transfer_id)
+        self._cpu_pool.submit(self._run_analysis, request_id, path, transfer_id)
         return {"requestId": request_id}
 
     def _run_analysis(self, request_id, path, transfer_id):
@@ -2945,7 +2965,27 @@ class CoreHost:
                 "requestId": request_id, "path": path, "reason": str(error),
             })
             return
+        # Archive the finding before announcing it. The store has its own lock
+        # (writing seek-state.json from this worker would race the main loop),
+        # and stat AFTER the analysis: if the file changed while being read,
+        # the fingerprint reflects the bytes now on disk and the next snapshot
+        # prunes the entry rather than vouching for a file nobody analysed.
+        try:
+            stat = os.stat(path)
+            self._verdicts().record(payload, stat.st_size, stat.st_mtime)
+        except OSError:
+            log.warning("analysed file vanished before it could be recorded: %s", path)
         self.bridge.broadcast("analysis.result", payload)
+
+    def _verdicts(self):
+        if getattr(self, "_verdict_store", None) is None:
+            self._verdict_store = verdicts_mod.VerdictStore(
+                os.path.join(self.data_folder, "spectral-verdicts.json")
+            )
+        return self._verdict_store
+
+    def _cmd_analysis_verdicts(self, _params):
+        return {"verdicts": self._verdicts().snapshot()}
 
     # -- chat --------------------------------------------------------------
     #

@@ -28,6 +28,9 @@ import { TIER_RANK } from '../domain/quality.ts';
 import { reliabilityFrom } from '../domain/score.ts';
 import { adaptSearchResult, isAudioPath } from './adapt.ts';
 import type { WireSearchClosedData, WireSearchResultData } from './adapt.ts';
+import { loadLastFilters, saveLastFilters } from './filterPrefs.ts';
+import { GLOBAL_SCOPE } from './mockSidecar.ts';
+import type { SearchScope } from './mockSidecar.ts';
 import type { SidecarConnection } from './connectionStore.ts';
 import type { WantTrack } from '../../../shared/protocol.ts';
 import type { ConnectionPhase, SidecarClient } from './sidecarClient.ts';
@@ -138,6 +141,8 @@ export interface SearchSnapshot {
   expectedTracks: number | null;
   /** See SearchSession.expectedTracklist. Carried per tab. */
   expectedTracklist: WantTrack[] | null;
+  /** Where this tab's searches look. Carried per tab, like filters. */
+  scope: SearchScope;
 }
 
 export interface SearchSessionOptions {
@@ -168,6 +173,9 @@ export interface SearchSession {
    * Same lifecycle: null for a hand-typed query, cleared by any re-run.
    */
   expectedTracklist: WantTrack[] | null;
+  /** Where searches in this tab look. Defaults to everyone. */
+  scope: SearchScope;
+  setScope(scope: SearchScope): void;
   running: boolean;
   closedReason: string | null;
 
@@ -241,7 +249,11 @@ export function useSearchSession(
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [expectedTracks, setExpectedTracks] = useState<number | null>(null);
   const [expectedTracklist, setExpectedTracklist] = useState<WantTrack[] | null>(null);
-  const [filters, setFiltersState] = useState<Filters>(EMPTY_FILTERS);
+  const [scope, setScope] = useState<SearchScope>(GLOBAL_SCOPE);
+  /* Lazily seeded from the last-used set. Only the FIRST tab starts here —
+   * every later tab copies the active one (searchTabs.blank()), so the
+   * persistence decides nothing but what the app opens with. */
+  const [filters, setFiltersState] = useState<Filters>(loadLastFilters);
   // docs/PRODUCT.md §4: release cards are the default presentation.
   const [groupBy, setGroupByState] = useState<GroupBy>('release');
   const [sort, setSortState] = useState<SortKey>('best');
@@ -343,9 +355,9 @@ export function useSearchSession(
           setRunning(false);
           setClosedReason(data.reason);
         },
-      });
+      }, scope);
     },
-    [query, sidecar, grouper, flush],
+    [query, sidecar, grouper, flush, scope],
   );
 
   const stop = useCallback(() => {
@@ -493,14 +505,20 @@ export function useSearchSession(
 
   /* ---- controls ---- */
 
+  /* The write-through lives in these two callbacks and nowhere else — not in
+   * restore(), because switching tabs is not "using" a filter set, and never
+   * inside an updater (StrictMode runs updaters twice; see searchTabs.test). */
   const setFilters = useCallback((next: Filters) => {
     resortAll.current = true;
     setFiltersState(next);
+    saveLastFilters(next);
   }, []);
 
   const resetFilters = useCallback(() => {
     resortAll.current = true;
-    setFiltersState({ ...EMPTY_FILTERS, formats: new Set() });
+    const next = { ...EMPTY_FILTERS, formats: new Set<string>() };
+    setFiltersState(next);
+    saveLastFilters(next);
   }, []);
 
   const setGroupBy = useCallback((g: GroupBy) => {
@@ -541,8 +559,9 @@ export function useSearchSession(
     tick: tickRef.current,
     expectedTracks,
     expectedTracklist,
+    scope,
   }), [query, grouper, filters, groupBy, sort, expanded, closedReason, expectedTracks,
-    expectedTracklist]);
+    expectedTracklist, scope]);
 
   const restore = useCallback((snap: SearchSnapshot) => {
     /* Stop first. Only one search can run at a time — `sidecar.start` replaces
@@ -571,13 +590,14 @@ export function useSearchSession(
     setClosedReason(snap.closedReason);
     setExpectedTracks(snap.expectedTracks);
     setExpectedTracklist(snap.expectedTracklist);
+    setScope(snap.scope);
     setRunning(false);
     setTick(snap.tick);
   }, [sidecar, grouper]);
 
   return {
     query, setQuery, run, stop, running, closedReason, expectedTracks,
-    expectedTracklist,
+    expectedTracklist, scope, setScope,
     snapshot, restore,
     rows,
     pendingCount: pending.length,
