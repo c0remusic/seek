@@ -576,7 +576,7 @@ def parse_discogs(url, token, fetch_json=None, fetch_image=None):
     if kind in ("artist", "label"):
         # Nothing to search for yet — this is a catalogue, and browsing it is
         # Phase D4. Name it correctly so the card can offer the right action.
-        name = re.sub(r"\s*\(\d+\)$", "", str(payload.get("name") or ""))
+        name = _strip_disambiguator(payload.get("name"))
         out["rawTitle"] = name
         out["artist"] = name if kind == "artist" else ""
         out["title"] = name
@@ -594,10 +594,14 @@ def parse_discogs(url, token, fetch_json=None, fetch_image=None):
     year = payload.get("year")
     out["year"] = int(year) if isinstance(year, int) and year > 0 else None
 
+    # A /masters/ payload has NO labels (and no formats): a master is the
+    # abstraction over pressings, and attributing one pressing's catalogue
+    # number to it would be confidently wrong. So label/catalogNumber staying
+    # None for a master link is the honest answer, not a gap — and the reason
+    # this stays one API call rather than chasing main_release for a second.
     labels = payload.get("labels") or []
     if labels:
-        out["label"] = re.sub(r"\s*\(\d+\)$", "",
-                              str(labels[0].get("name") or "")) or None
+        out["label"] = _strip_disambiguator(labels[0].get("name")) or None
         out["catalogNumber"] = str(labels[0].get("catno") or "") or None
 
     # Genres first, then styles: Discogs' genres are broad ("Electronic") and its

@@ -209,6 +209,28 @@ def test_discogs_release():
     assert archangel["duration"] == 239
 
 
+def test_discogs_master_reads_what_a_master_actually_carries():
+    """A /masters/ payload has NO labels and NO formats — a master is the
+    abstraction over pressings, so label/catalogNumber staying None is the
+    honest answer, not a gap. The fixture is hand-built (see record.py): what
+    it pins is the absence of keys, which a live re-record cannot promise."""
+    payload = json_fixture("discogs-master-burial-untrue.json")
+    out = discover.parse_discogs(
+        "https://www.discogs.com/master/106468-Burial-Untrue", "a-token",
+        fetch_json=lambda *a, **k: payload, fetch_image=no_image,
+    )
+    assert out["sourceKind"] == "discogs"
+    assert out["kind"] == "release"
+    # The "(2)" Discogs disambiguator is stripped on the release credit AND
+    # on per-track credits.
+    assert out["artist"] == "Burial"
+    assert out["tracklist"][0]["artist"] == "Burial"
+    assert out["label"] is None
+    assert out["catalogNumber"] is None
+    assert out["year"] == 2007
+    assert [t["title"] for t in out["tracklist"]] == ["Untitled", "Archangel"]
+
+
 def test_discogs_sends_the_token_as_a_header_never_in_the_url():
     """A credential in a query string ends up in every log and proxy en route."""
     payload = json_fixture("discogs-release-burial-untrue.json")

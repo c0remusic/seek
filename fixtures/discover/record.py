@@ -38,6 +38,12 @@ DISCOGS_RELEASE = 1125103
 DISCOGS_LABEL = 25386          # Hyperdub
 BANDCAMP_LABEL = "https://hyperdub.bandcamp.com/music"
 
+# NOT recorded here: discogs-master-burial-untrue.json is hand-built. The
+# thing it pins is the ABSENCE of keys — /masters/ payloads carry no labels
+# and no formats — and a live re-record cannot promise to keep a key absent.
+# Its artist name carries a "(2)" suffix on purpose, to exercise the
+# disambiguator strip on a master.
+
 
 def get(url, headers=None, accept="application/json"):
     request = urllib.request.Request(url, headers={
