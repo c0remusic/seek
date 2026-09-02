@@ -358,10 +358,11 @@ entirely.
 git clone --recurse-submodules <this repo>
 cd seek
 
-# the Python engine
+# the Python engine. The dev set, not just the runtime one: the release
+# scripts run the tests and PyInstaller, and both live in requirements-dev.
 cd sidecar
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements-dev.txt
 cd ..
 
 # the app

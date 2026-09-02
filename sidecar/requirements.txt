@@ -1,21 +1,28 @@
 # Seek sidecar runtime dependencies.
 #
+# PINNED EXACTLY, on purpose. These versions are what CI tested and what
+# PyInstaller freezes into the bundle a user runs; a floating bound let a CI
+# run and a release build resolve different numpy/soundfile and nothing
+# recorded what actually shipped. Bump a pin deliberately — change it, run
+# the suite, commit both — never silently. (pynicotine needs no pin here: it
+# is a git submodule locked by SHA, the most reproducible dependency we have.)
+#
 # websockets — the transport. Pure Python, no transitive deps, asyncio-native.
 # Its process_request hook is what lets the auth token be checked during the
 # HTTP upgrade rather than after a connection already exists. aiohttp would pull
 # in five packages for a server we do not otherwise need; hand-rolling RFC 6455
 # framing would be ~200 lines of security-sensitive code to avoid one small dep.
-websockets>=15,<18
+websockets==17.1
 
 # numpy — FFT for spectral analysis (docs/PRODUCT.md §6). Non-negotiable for
 # this feature; writing an FFT by hand would be absurd.
-numpy>=1.26
+numpy==2.4.6
 
 # soundfile — decode. Wraps libsndfile, which handles FLAC/WAV/AIFF/OGG and
 # (since 1.1) MP3 natively, covering essentially everything Soulseek carries.
 # ffmpeg is used as a fallback for AAC/ALAC/Opus/WMA and is invoked as a
 # subprocess, so it is an optional system dependency rather than a Python one.
-soundfile>=0.12
+soundfile==0.14.0
 
 # Upstream pynicotine has NO runtime dependencies for the core — its declared
 # PyGObject requirement is for the GTK UI, which we never import. Verified by
@@ -25,4 +32,4 @@ soundfile>=0.12
 # a frozen build has no trust store of its own and asks OpenSSL for a path baked
 # in at build time, so without this every lookup on the shipped app dies with
 # CERTIFICATE_VERIFY_FAILED while working perfectly from the venv. See certs.py.
-certifi>=2024.2.2
+certifi==2026.7.22
