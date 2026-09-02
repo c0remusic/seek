@@ -2011,6 +2011,17 @@
 .verify--done[data-tone='good'] { color: var(--success); }
 .verify--done[data-tone='warn'] { color: var(--warn); }
 .verify--done[data-tone='bad']  { color: var(--danger); }
+
+/* The archived spectral finding, shown on library rows and tiles. Quietly
+   sized: it annotates the shelf, it does not compete with the title. */
+.libverdict {
+  font-size: var(--fs-micro); letter-spacing: var(--tr-caption);
+  white-space: nowrap; flex: none;
+}
+.libverdict[data-tone='good']    { color: var(--success); }
+.libverdict[data-tone='warn']    { color: var(--warn); }
+.libverdict[data-tone='bad']     { color: var(--danger); }
+.libverdict[data-tone='unknown'] { color: var(--text-tertiary); }
 .verify--done[data-tone='unknown'] { color: var(--text-tertiary); }
 
 /* ==================================================== table density ====== */

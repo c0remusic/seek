@@ -902,6 +902,7 @@ export default function App() {
           <LibraryView
             library={library}
             artwork={artwork}
+            analysis={analysis}
             density={libDensity}
             onDensity={changeLibDensity}
             onSearch={(q) => { setSection('search'); searchTabs.openWith(q); }}
