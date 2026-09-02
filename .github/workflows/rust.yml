@@ -65,6 +65,13 @@ jobs:
           npm ci
           npm run build
 
+      # tauri-build validates every bundle resource path even under a plain
+      # clippy, and this job deliberately does not freeze the Python sidecar
+      # (that is windows.yml/release.sh territory, minutes of PyInstaller for
+      # a lint run). An empty directory satisfies the existence check.
+      - name: Stub the sidecar resource path
+        run: mkdir -p sidecar/dist/seek-sidecar
+
       # --locked: fail on Cargo.lock drift instead of silently resolving new
       # versions the committed lock never saw.
       - name: Clippy
