@@ -17,25 +17,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
 
-export type ChatScope = 'room' | 'private';
-
-export interface ChatMessage {
-  scope: ChatScope;
-  target: string;
-  username: string;
-  message: string;
-  outgoing: boolean;
-  kind: 'message' | 'action' | 'local' | 'hilite';
-  mentioned: boolean;
-  timestamp: number;
-}
-
-export interface ChatRoom {
-  name: string;
-  userCount: number;
-  joined: boolean;
-  private: boolean;
-}
+/* Wire shapes from the generated protocol, re-exported for the views. */
+export type { ChatMessage, ChatRoom, ChatScope } from '../../../shared/protocol.ts';
+import type { ChatMessage, ChatRoom, ChatScope } from '../../../shared/protocol.ts';
 
 /** A room or a person, with its backlog. */
 export interface Conversation {
@@ -122,7 +106,7 @@ export function useChatSession(
     });
 
     const offRooms = client.on('chat.rooms', (data) => {
-      setRooms((data as { rooms: ChatRoom[] }).rooms ?? []);
+      setRooms(data.rooms ?? []);
     });
 
     const offMembers = client.on('chat.members', (data) => {

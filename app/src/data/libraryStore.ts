@@ -20,26 +20,11 @@ import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
 import { useSidecarGeneration } from './useSidecarGeneration.ts';
 
-export interface LibraryState {
-  scannedAt: number;
-  roots: string[];
-  releaseCount: number;
-  trackCount: number;
-  scanning: boolean;
-}
-
-export interface LibraryRelease {
-  key: string;
-  artist: string;
-  release: string;
-  folder: string;
-  trackCount: number;
-  bytes: number;
-  /** Extension counts as JSON: the schema has no map type. */
-  formats: string;
-  year: number;
-  genre: string;
-}
+/* Wire shapes from the generated protocol, re-exported for the views. */
+export type {
+  LibraryGap, LibraryGaps, LibraryRelease, LibraryState,
+} from '../../../shared/protocol.ts';
+import type { LibraryGaps, LibraryRelease, LibraryState } from '../../../shared/protocol.ts';
 
 /* --- mirror of sidecar/library.py. Keep in step. --- */
 const BRACKETS = /[[(][^\])]*[\])]/g;
@@ -64,22 +49,6 @@ export function releaseKey(artist: string | null, release: string): string {
 
 export function trackKey(artist: string | null, title: string): string {
   return `${normalise(artist)}|${normalise(title)}`.replace(/^\||\|$/g, '');
-}
-
-export interface LibraryGap {
-  position: number;
-  title: string;
-  artist: string;
-  have: boolean;
-}
-
-export interface LibraryGaps {
-  key: string;
-  matched: boolean;
-  releaseTitle: string;
-  releaseArtist: string;
-  score: number;
-  tracks: LibraryGap[];
 }
 
 export interface LibrarySession {

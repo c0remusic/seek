@@ -19,41 +19,9 @@ import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import { EngineBusyError } from './sidecarClient.ts';
 import { reliabilityFrom } from '../domain/score.ts';
 
-export interface AppSettings {
-  /** Sign in on launch using the stored account. Upstream's own flag. */
-  autoConnect: boolean;
-  hasCredentials: boolean;
-  /** The stored account name, so the UI can say whose it is. Never the password. */
-  username: string;
-  externalLookups: boolean;
-  /** Whether a token is stored — never the value itself. */
-  discogsToken: boolean;
-  artworkCacheMb: number;
-  embedArtwork: boolean;
-  writeCoverFile: boolean;
-  /** Queue the best LOSSLESS source rather than the highest overall score. */
-  preferLossless: boolean;
-  minBitrate: number;
-  rejectTranscodes: boolean;
-  autoOrganise: boolean;
-  /** Group a burst of want list additions into a digging session. */
-  autoDigSessions: boolean;
-  /** Minutes of silence before a download shows under Failed. 0 = never. */
-  stalledFailMinutes: number;
-  /** Forget completed records older than this many days. 0 = keep. */
-  clearCompletedDays: number;
-  /** Whether an AcoustID key is stored — never the value. */
-  acoustidApiKey: boolean;
-  /** Whether a YouTube Data API key is stored — never the value. */
-  youtubeApiKey: boolean;
-}
-
-export interface PeerRecord {
-  username: string;
-  ok: number;
-  failed: number;
-  lastSeen: number;
-}
+/* Wire shapes from the generated protocol, re-exported for the views. */
+export type { AppSettings, PeerRecord } from '../../../shared/protocol.ts';
+import type { AppSettings, PeerRecord } from '../../../shared/protocol.ts';
 
 const DEFAULTS: AppSettings = {
   autoConnect: true,
@@ -76,10 +44,12 @@ const DEFAULTS: AppSettings = {
 };
 
 /**
- * The patch shape, written out rather than derived from AppSettings. Deriving
- * it collapsed `discogsToken` to `never`: the settings type carries a boolean
- * (is one stored?) while a patch carries the string itself, and intersecting
- * those two leaves nothing assignable.
+ * The patch shape, deliberately NOT the generated AppSettingsPatch. The wire
+ * struct requires every key present-but-null; this side's callers send only
+ * what changed and `patch()` fills the nulls at the seam. It also cannot be
+ * derived from AppSettings: the settings type carries a boolean for
+ * `discogsToken` (is one stored?) while a patch carries the string itself,
+ * and intersecting those two leaves nothing assignable.
  */
 export interface AppSettingsPatch {
   autoConnect?: boolean;
@@ -126,7 +96,7 @@ export function usePrefs(client: SidecarClient | null): PrefsSession {
   useEffect(() => {
     if (!client) return;
 
-    const offSettings = client.on('app.settings', (d) => setSettings(d as AppSettings));
+    const offSettings = client.on('app.settings', setSettings);
     const offPeers = client.on('peers.stats', (d) => {
       const items = (d as { items: PeerRecord[] }).items ?? [];
       setPeers(new Map(items.map((p) => [p.username, p])));

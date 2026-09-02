@@ -30,43 +30,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
 import { useSidecarGeneration } from './useSidecarGeneration.ts';
 
-export type TransferState =
-  | 'queued' | 'getting_status' | 'transferring' | 'paused' | 'cancelled'
-  | 'filtered' | 'finished' | 'user_logged_off' | 'connection_closed'
-  | 'connection_timeout' | 'download_folder_error' | 'local_file_error'
-  | 'unknown';
+export type { TransferDirection, TransferState } from '../../../shared/protocol.ts';
+import type { Transfer as WireTransfer, TransferState } from '../../../shared/protocol.ts';
 
-export type TransferDirection = 'download' | 'upload';
-
-export interface Transfer {
-  id: string;
-  /** Which way it is going. Downloads and uploads share this one type. */
-  direction: TransferDirection;
-  username: string;
-  path: string;
-  localFolder: string | null;
-  size: number;
-  bytesDone: number;
-  state: TransferState;
-  speed: number;
-  averageSpeed: number;
-  queuePosition: number | null;
-  secondsLeft: number | null;
-  secondsElapsed: number;
-  stalled: boolean;
-  /** Seconds since bytesDone last moved, AS OF WHEN THE SIDECAR SENT THIS. */
-  secondsSinceProgress: number;
-  /** Epoch seconds this first read finished, null while it has not. */
-  finishedAt: number | null;
-  error: string | null;
-
-  /* Frontend-only, not on the wire. `secondsSinceProgress` is a snapshot, and a
-   * transfer that has gone quiet sends nothing more by definition — that is what
-   * being quiet means — so the snapshot is the last thing we will ever hear.
-   * Stamping arrival is what lets `silenceSeconds` keep counting afterwards
-   * instead of freezing at whatever the last event happened to say. */
-  seenAt?: number;
-}
+/* The wire's Transfer, plus one frontend-only stamp. `secondsSinceProgress`
+ * is a snapshot, and a transfer that has gone quiet sends nothing more by
+ * definition — that is what being quiet means — so the snapshot is the last
+ * thing we will ever hear. Stamping arrival is what lets `silenceSeconds`
+ * keep counting afterwards instead of freezing at whatever the last event
+ * happened to say. */
+export type Transfer = WireTransfer & { seenAt?: number };
 
 /**
  * How long this transfer has been silent, right now.

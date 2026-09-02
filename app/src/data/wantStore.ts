@@ -20,33 +20,10 @@ import type { SidecarClient } from './sidecarClient.ts';
 import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import { fuzzyKey, isVariousArtists, stripReleaseNoise } from '../domain/text.ts';
 
-export type WantStatus = 'pending' | 'searching' | 'found' | 'downloaded' | 'not_found';
-export type WantSource = 'youtube' | 'bandcamp' | 'discogs' | 'manual' | 'fingerprint';
-
-export interface WantEntry {
-  id: string;
-  artist: string;
-  title: string;
-  album: string | null;
-  year: number | null;
-  label: string | null;
-  catalogNumber: string | null;
-  sourceKind: WantSource;
-  sourceUrl: string | null;
-  sourceTitle: string | null;
-  artworkUri: string | null;
-  status: WantStatus;
-  addedAt: number;
-  searchedAt: number | null;
-  notes: string | null;
-  duration: number | null;
-  tracklist: Array<{
-    position: number; title: string; artist: string; duration: number | null;
-    disc: number | null; rawPosition: string | null;
-  }>;
-  /** The digging session this was saved during, if any. */
-  sessionId: string | null;
-}
+/* The wire shapes come from the generated protocol — one source of truth,
+ * re-exported here so consumers keep importing them from the store. */
+export type { WantEntry, WantSource, WantStatus } from '../../../shared/protocol.ts';
+import type { WantEntry } from '../../../shared/protocol.ts';
 
 /** What a caller must supply to add one. The sidecar fills in the rest. */
 export type NewWantEntry = Partial<WantEntry> & { artist: string; title: string };
@@ -121,7 +98,7 @@ export function useWant(client: SidecarClient | null): WantSession {
   useEffect(() => {
     if (!client) return;
     const off = client.on('want.changed', (data) => {
-      setEntries((data as { entries: WantEntry[] }).entries ?? []);
+      setEntries(data.entries ?? []);
     });
     void client.request<{ entries: WantEntry[] }>('want.list')
       .then((r) => setEntries(r.entries ?? []))
