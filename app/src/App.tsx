@@ -25,6 +25,7 @@ import { useChatSession } from './data/chatStore.ts';
 import { useTransfers } from './data/transferStore.ts';
 import { useUpdates } from './data/updateStore.ts';
 import { useAnalysis } from './data/analysisStore.ts';
+import { useIdentify } from './data/identifyStore.ts';
 import { useBrowse } from './data/browseStore.ts';
 import { useArtwork } from './data/artworkStore.ts';
 import { useLibrary } from './data/libraryStore.ts';
@@ -238,6 +239,7 @@ export default function App() {
   );
   const updates = useUpdates();
   const analysis = useAnalysis(session.client);
+  const identify = useIdentify(session.client);
   const artwork = useArtwork(session.client);
   const library = useLibrary(session.client);
   const browse = useBrowse(session.client, library.ownedReleases);
@@ -281,7 +283,12 @@ export default function App() {
     want.update(entry.id, { status: 'searching' });
     const query = want.queryFor(entry);
     setSection('search');
-    searchTabs.openWith(query);
+    // The entry's Discogs tracklist has been riding the wire since the
+    // matching work landed and was never read at search time — this is where
+    // it finally pays: completeness judged against the pressing that was
+    // SAVED, and the missing tracks named.
+    const tracklist = entry.tracklist.length > 0 ? entry.tracklist : null;
+    searchTabs.openWith(query, tracklist ? tracklist.length : null, tracklist);
   }, [want, searchTabs]);
 
   useEffect(() => {
@@ -986,6 +993,7 @@ export default function App() {
             filter={section === 'downloads' ? 'active'
               : section === 'completed' ? 'finished' : 'failed'}
             analysis={analysis}
+            identify={identify}
             client={session.client}
             preview={preview}
             density={dlDensity}

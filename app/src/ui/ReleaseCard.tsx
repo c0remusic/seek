@@ -14,6 +14,8 @@
  */
 
 import type { Release, SourceFile } from '../domain/types.ts';
+import { alignTracklist } from '../domain/alignTracklist.ts';
+import type { WantTrack } from '../../../shared/protocol.ts';
 import { audioSpec, count, fileSize, speed } from '../domain/format.ts';
 import { worstAssessment } from '../domain/assessment.ts';
 import { QualityIndicator } from './QualityIndicator.tsx';
@@ -62,6 +64,7 @@ export function ReleaseCard({
   owned,
   release, expanded, onToggle, onQueue, density, peers, copyCount = 1, onCompare,
   expectedTracks = null,
+  expectedTracklist = null,
 }: {
   /** Cover state for this release, if one has been asked for. */
   art?: ArtState;
@@ -69,6 +72,9 @@ export function ReleaseCard({
    *  provider release (a Discogs link names its pressing exactly). Outranks
    *  the artwork lookup's MusicBrainz count, which is a fuzzy re-search. */
   expectedTracks?: number | null;
+  /** The tracks themselves, when the search carried them — lets the partial
+   *  chip NAME what is missing instead of only counting it. */
+  expectedTracklist?: WantTrack[] | null;
   /** Already on disk. The single most useful thing to know about a result. */
   owned?: boolean;
   release: Release;
@@ -124,11 +130,22 @@ export function ReleaseCard({
             ?? (art?.state === 'ready' && art.trackCount > 0 ? art.trackCount : null);
           const from = expectedTracks !== null ? 'The searched release lists'
             : 'MusicBrainz lists';
+          // When the tracks themselves travelled with the search, say WHICH
+          // ones this folder's filenames do not carry — hedged, because a
+          // badly named rip defeats any title match.
+          const absent = expectedTracklist && expectedTracklist.length > 0
+            ? alignTracklist(expectedTracklist, release.files)
+              .filter((t) => !t.covered)
+              .map((t) => t.track.title)
+            : [];
+          const named = absent.length > 0
+            ? ` Not seen in its filenames: ${absent.join(' · ')}.`
+            : '';
           return catalogue !== null && catalogue > 0
             && release.trackCount < catalogue && (
             <span
               className="partial"
-              title={`${from} ${catalogue} tracks for this release; this folder has ${release.trackCount}.`}
+              title={`${from} ${catalogue} tracks for this release; this folder has ${release.trackCount}.${named}`}
             >
               <span className="tnum">{release.trackCount}</span> of{' '}
               <span className="tnum">{catalogue}</span>

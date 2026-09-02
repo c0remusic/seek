@@ -41,6 +41,7 @@ import { SPRING_DEFAULT, Spring } from '../motion/spring.ts';
 import { useReducedMotion } from '../motion/prefs.ts';
 import type { ArtworkSession } from '../data/artworkStore.ts';
 import type { LibrarySession } from '../data/libraryStore.ts';
+import type { WantTrack } from '../../../shared/protocol.ts';
 
 /*
  * Estimates only — the virtualiser measures the real height of every row. They
@@ -112,6 +113,7 @@ export function ResultList({
   rows, currentTick, expanded, onToggle, onQueue, onBrowse, onContext, pendingCount, onFoldIn,
   onViewport, emptyState, density, columns = DEFAULT_COLUMNS, artwork, library, peers,
   expectedTracks = null,
+  expectedTracklist = null,
   copies, onCompare,
 }: {
   rows: Row[];
@@ -128,6 +130,7 @@ export function ResultList({
   /** The searched release's own track count, when the search came from a
    *  provider release. Outranks the artwork lookup's on the cards. */
   expectedTracks?: number | null;
+  expectedTracklist?: WantTrack[] | null;
   library?: LibrarySession;
   /** Your own transfer history with each peer. Absent means never met. */
   peers?: PeerLookup;
@@ -413,7 +416,7 @@ export function ResultList({
                   }}
                 >
                   {renderRow(row, expanded, onToggle, onQueue, density, onBrowse, artwork, peers,
-                    library, copies, onCompare, expectedTracks)}
+                    library, copies, onCompare, expectedTracks, expectedTracklist)}
                 </div>
               );
             })}
@@ -437,6 +440,7 @@ function renderRow(
   copies?: Map<string, Release[]>,
   onCompare?: (release: Release) => void,
   expectedTracks?: number | null,
+  expectedTracklist?: WantTrack[] | null,
 ) {
   switch (row.kind) {
     case 'track':
@@ -456,6 +460,7 @@ function renderRow(
         <ReleaseCard
           art={artwork?.get(row.release.id)}
           expectedTracks={expectedTracks}
+          expectedTracklist={expectedTracklist}
           owned={library?.hasRelease(row.release.artist, row.release.title)}
           release={row.release}
           expanded={expanded.has(row.id)}

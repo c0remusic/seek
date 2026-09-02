@@ -225,9 +225,12 @@ export function SearchView({
     const p = discover.preview;
     const expected =
       p && p.kind === 'release' && p.trackCount > 0 ? p.trackCount : null;
+    // And the tracks THEMSELVES, so the missing ones can be named, not
+    // just counted.
+    const tracklist = expected && p && p.tracklist.length > 0 ? p.tracklist : null;
     // `run` sets the box itself now, so the pairing is no longer manual.
-    if (tabs) tabs.openWith(q, expected);
-    else session.run(q, { expectedTracks: expected });
+    if (tabs) tabs.openWith(q, expected, tracklist);
+    else session.run(q, { expectedTracks: expected, expectedTracklist: tracklist });
     discover.dismiss();
   }, [discover, session, tabs]);
 
@@ -575,6 +578,7 @@ export function SearchView({
         onBrowse={onBrowse}
         artwork={artwork}
         expectedTracks={session.expectedTracks}
+        expectedTracklist={session.expectedTracklist}
         library={library}
         peers={peers}
         onContext={onContext}
@@ -619,6 +623,7 @@ export function SearchView({
           target={comparing}
           copies={copiesOf(comparing, copyGroups)}
           catalogueTracks={catalogueTracks(comparing.id)}
+          expectedTracklist={session.expectedTracklist}
           peers={peers}
           onQueue={(copy) => { queueRelease(copy); setComparing(null); }}
           onClose={() => setComparing(null)}

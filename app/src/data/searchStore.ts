@@ -32,6 +32,7 @@ import { loadLastFilters, saveLastFilters } from './filterPrefs.ts';
 import { GLOBAL_SCOPE } from './mockSidecar.ts';
 import type { SearchScope } from './mockSidecar.ts';
 import type { SidecarConnection } from './connectionStore.ts';
+import type { WantTrack } from '../../../shared/protocol.ts';
 import type { ConnectionPhase, SidecarClient } from './sidecarClient.ts';
 
 export const TICK_MS = 250;
@@ -138,6 +139,8 @@ export interface SearchSnapshot {
   tick: number;
   /** See SearchSession.expectedTracks. Carried per tab. */
   expectedTracks: number | null;
+  /** See SearchSession.expectedTracklist. Carried per tab. */
+  expectedTracklist: WantTrack[] | null;
   /** Where this tab's searches look. Carried per tab, like filters. */
   scope: SearchScope;
 }
@@ -149,7 +152,10 @@ export interface SearchSessionOptions {
 export interface SearchSession {
   query: string;
   setQuery(q: string): void;
-  run(query?: string, opts?: { expectedTracks?: number | null }): void;
+  run(query?: string, opts?: {
+    expectedTracks?: number | null;
+    expectedTracklist?: WantTrack[] | null;
+  }): void;
   stop(): void;
   /**
    * How many tracks the release this search was started FROM actually has —
@@ -160,6 +166,13 @@ export interface SearchSession {
    * longer that release.
    */
   expectedTracks: number | null;
+  /**
+   * The tracks themselves, when the provider named them — the count above is
+   * derivable but kept for the callers that only ever had a count. What this
+   * buys over the number: the missing tracks can be NAMED, not just counted.
+   * Same lifecycle: null for a hand-typed query, cleared by any re-run.
+   */
+  expectedTracklist: WantTrack[] | null;
   /** Where searches in this tab look. Defaults to everyone. */
   scope: SearchScope;
   setScope(scope: SearchScope): void;
@@ -235,6 +248,7 @@ export function useSearchSession(
   const [running, setRunning] = useState(false);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [expectedTracks, setExpectedTracks] = useState<number | null>(null);
+  const [expectedTracklist, setExpectedTracklist] = useState<WantTrack[] | null>(null);
   const [scope, setScope] = useState<SearchScope>(GLOBAL_SCOPE);
   /* Lazily seeded from the last-used set. Only the FIRST tab starts here —
    * every later tab copies the active one (searchTabs.blank()), so the
@@ -292,13 +306,17 @@ export function useSearchSession(
   }, [running, flush]);
 
   const run = useCallback(
-    (q?: string, opts?: { expectedTracks?: number | null }) => {
+    (q?: string, opts?: {
+      expectedTracks?: number | null;
+      expectedTracklist?: WantTrack[] | null;
+    }) => {
       const text = (q ?? query).trim();
       if (!text) return;
 
       // Absent means null on purpose: a plain re-run is a hand-edited query,
       // which is no longer the release the count described.
       setExpectedTracks(opts?.expectedTracks ?? null);
+      setExpectedTracklist(opts?.expectedTracklist ?? null);
 
       /* The box always shows the search that is running.
        *
@@ -540,8 +558,10 @@ export function useSearchSession(
     filters, groupBy, sort, expanded, closedReason,
     tick: tickRef.current,
     expectedTracks,
+    expectedTracklist,
     scope,
-  }), [query, grouper, filters, groupBy, sort, expanded, closedReason, expectedTracks, scope]);
+  }), [query, grouper, filters, groupBy, sort, expanded, closedReason, expectedTracks,
+    expectedTracklist, scope]);
 
   const restore = useCallback((snap: SearchSnapshot) => {
     /* Stop first. Only one search can run at a time — `sidecar.start` replaces
@@ -569,13 +589,15 @@ export function useSearchSession(
     setExpanded(snap.expanded);
     setClosedReason(snap.closedReason);
     setExpectedTracks(snap.expectedTracks);
+    setExpectedTracklist(snap.expectedTracklist);
     setScope(snap.scope);
     setRunning(false);
     setTick(snap.tick);
   }, [sidecar, grouper]);
 
   return {
-    query, setQuery, run, stop, running, closedReason, expectedTracks, scope, setScope,
+    query, setQuery, run, stop, running, closedReason, expectedTracks,
+    expectedTracklist, scope, setScope,
     snapshot, restore,
     rows,
     pendingCount: pending.length,

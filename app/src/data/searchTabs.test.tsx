@@ -49,6 +49,7 @@ function useFakeSession(): SearchSession {
   const snapshot = useCallback((): SearchSnapshot => ({
     query, files, peers: [], filters, groupBy, sort,
     expanded: new Set(), closedReason: null, tick: 0, expectedTracks,
+    expectedTracklist: null,
     scope: GLOBAL_SCOPE,
   }), [query, files, filters, groupBy, sort, expectedTracks]);
 

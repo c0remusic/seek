@@ -1609,9 +1609,10 @@ class CoreHost:
     def _cmd_discover_fingerprint(self, params):
         if not self._lookups_allowed():
             raise CommandError("unsupported", "external lookups are switched off")
-        path = (params.get("path") or "").strip()
-        if not os.path.isfile(path):
-            raise CommandError("not_found", f"no such file: {path}")
+        # The same resolver metadata and spectral use: a transferId names the
+        # finished download's file, and a transfer still moving is refused —
+        # fingerprinting half a file would "identify" the wrong recording.
+        path = self._resolve_local_file(params)
         request_id = registries.transfer_id("fingerprint", path)
         limit = params.get("durationLimit") or discover_mod.FINGERPRINT_SECONDS
         self._discover_pool.submit(self._run_fingerprint, request_id, path, int(limit))
