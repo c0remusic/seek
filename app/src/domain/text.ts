@@ -52,7 +52,14 @@ export function fuzzyKey(s: string): string {
   t = t.replace(/\b(feat|ft|featuring)\.?\s+/g, ' ');
   t = t.replace(/[^a-z0-9]+/g, ' ');
   t = t.replace(/^(the|a|an)\s+/, '');
-  return squash(t);
+  const key = squash(t);
+  if (key) return key;
+  /* The [a-z0-9] collapse empties anything written outside latin — a Cyrillic
+   * or CJK title keyed to '' matched nothing and got dropped from grouping,
+   * which is a silent no for entire catalogues. Fallback-ONLY, so a string
+   * with any latin content keeps today's key and no existing group can
+   * re-bucket. No article strip here: articles are a latin concern. */
+  return squash(deaccent(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' '));
 }
 
 /** Folder names that never identify an artist. Used when climbing the path. */

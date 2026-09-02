@@ -209,6 +209,19 @@ def test_discogs_release():
     assert archangel["duration"] == 239
 
 
+def test_fuzzy_identity_survives_non_latin_scripts():
+    """The [a-z0-9] collapse keyed every Cyrillic and CJK name to '' — and an
+    empty key made _resembles refuse the name outright, so discogs_find_id
+    rejected entire non-latin catalogues. Latin keys must not move."""
+    assert discover._fuzzy("Burial (2)") == "burial2"      # unchanged
+    assert discover._fuzzy("Кино") != ""
+    assert discover._fuzzy("Кино") == discover._fuzzy("кино")
+    assert discover._resembles("Кино", "Кино")
+    assert not discover._resembles("Кино", "Aphex Twin")
+    # Mixed script keeps the latin-only key, so nothing regroups.
+    assert discover._fuzzy("Кино Kino") == "kino"
+
+
 def test_discogs_positions_are_sequential_and_multi_disc_positions_state_the_disc():
     """First-integer numbering gave a 2xCD two "track 1"s: "1-1" and "2-1"
     both contain a 1. Sequential positions keep ordering and uniqueness; the

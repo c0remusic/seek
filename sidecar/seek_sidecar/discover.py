@@ -867,7 +867,14 @@ def related(artist, release, label, discogs_token, fetch_json=None):
 
 
 def _fuzzy(text):
-    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+    key = re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+    if key:
+        return key
+    # The [a-z0-9] collapse empties anything written outside latin, and an
+    # empty key made _resembles reject every non-latin artist and label name
+    # outright. Fallback-only, mirroring the frontend's fuzzyKey: a string
+    # with any latin content keeps the old key, so nothing regroups.
+    return re.sub(r"[\W_]+", "", str(text or "").lower(), flags=re.UNICODE)
 
 
 # --------------------------------------------------------------- tracklists
