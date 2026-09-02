@@ -133,6 +133,8 @@ export interface SearchSnapshot {
   expanded: Set<string>;
   closedReason: string | null;
   tick: number;
+  /** See SearchSession.expectedTracks. Carried per tab. */
+  expectedTracks: number | null;
 }
 
 export interface SearchSessionOptions {
@@ -142,8 +144,17 @@ export interface SearchSessionOptions {
 export interface SearchSession {
   query: string;
   setQuery(q: string): void;
-  run(query?: string): void;
+  run(query?: string, opts?: { expectedTracks?: number | null }): void;
   stop(): void;
+  /**
+   * How many tracks the release this search was started FROM actually has —
+   * known only when the search came from a provider release (a Discogs link
+   * names its exact tracklist). The authoritative input to completeness,
+   * outranking the MusicBrainz re-search of the folder name. Null for a
+   * hand-typed query, and cleared by any re-run: an edited query is no
+   * longer that release.
+   */
+  expectedTracks: number | null;
   running: boolean;
   closedReason: string | null;
 
@@ -215,6 +226,7 @@ export function useSearchSession(
   const [query, setQuery] = useState('');
   const [running, setRunning] = useState(false);
   const [closedReason, setClosedReason] = useState<string | null>(null);
+  const [expectedTracks, setExpectedTracks] = useState<number | null>(null);
   const [filters, setFiltersState] = useState<Filters>(EMPTY_FILTERS);
   // docs/PRODUCT.md §4: release cards are the default presentation.
   const [groupBy, setGroupByState] = useState<GroupBy>('release');
@@ -268,9 +280,13 @@ export function useSearchSession(
   }, [running, flush]);
 
   const run = useCallback(
-    (q?: string) => {
+    (q?: string, opts?: { expectedTracks?: number | null }) => {
       const text = (q ?? query).trim();
       if (!text) return;
+
+      // Absent means null on purpose: a plain re-run is a hand-edited query,
+      // which is no longer the release the count described.
+      setExpectedTracks(opts?.expectedTracks ?? null);
 
       /* The box always shows the search that is running.
        *
@@ -505,7 +521,8 @@ export function useSearchSession(
     query, files: grouper.all.slice(), peers: [...peers.current],
     filters, groupBy, sort, expanded, closedReason,
     tick: tickRef.current,
-  }), [query, grouper, filters, groupBy, sort, expanded, closedReason]);
+    expectedTracks,
+  }), [query, grouper, filters, groupBy, sort, expanded, closedReason, expectedTracks]);
 
   const restore = useCallback((snap: SearchSnapshot) => {
     /* Stop first. Only one search can run at a time — `sidecar.start` replaces
@@ -532,12 +549,13 @@ export function useSearchSession(
     setSortState(snap.sort);
     setExpanded(snap.expanded);
     setClosedReason(snap.closedReason);
+    setExpectedTracks(snap.expectedTracks);
     setRunning(false);
     setTick(snap.tick);
   }, [sidecar, grouper]);
 
   return {
-    query, setQuery, run, stop, running, closedReason,
+    query, setQuery, run, stop, running, closedReason, expectedTracks,
     snapshot, restore,
     rows,
     pendingCount: pending.length,

@@ -43,11 +43,12 @@ function useFakeSession(): SearchSession {
   const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS, losslessOnly: true });
   const [groupBy, setGroupBy] = useState<GroupBy>('release');
   const [sort, setSort] = useState<SortKey>('best');
+  const [expectedTracks, setExpectedTracks] = useState<number | null>(null);
 
   const snapshot = useCallback((): SearchSnapshot => ({
     query, files, peers: [], filters, groupBy, sort,
-    expanded: new Set(), closedReason: null, tick: 0,
-  }), [query, files, filters, groupBy, sort]);
+    expanded: new Set(), closedReason: null, tick: 0, expectedTracks,
+  }), [query, files, filters, groupBy, sort, expectedTracks]);
 
   const restore = useCallback((snap: SearchSnapshot) => {
     setQuery(snap.query);
@@ -55,6 +56,7 @@ function useFakeSession(): SearchSession {
     setFilters(snap.filters);
     setGroupBy(snap.groupBy);
     setSort(snap.sort);
+    setExpectedTracks(snap.expectedTracks);
   }, []);
 
   /* Stands in for running a search in whatever tab is active. Without it every
@@ -68,13 +70,15 @@ function useFakeSession(): SearchSession {
 
   /* `openWith` calls this, so it has to actually search — a no-op `run` would
      let every tab rule pass while the search never happened. */
-  const run = useCallback((q?: string) => {
+  const run = useCallback((q?: string, opts?: { expectedTracks?: number | null }) => {
     if (q) runSearch(q, 3);
+    // Mirrors the real store: absent means null, so a re-run clears it.
+    setExpectedTracks(opts?.expectedTracks ?? null);
   }, [runSearch]);
 
   return {
     query, files, filters, groupBy, sort, running: false,
-    totalFiles: files.length,
+    totalFiles: files.length, expectedTracks,
     snapshot, restore, runSearch, run,
   } as unknown as SearchSession & { files: SourceFile[]; runSearch(q: string, n: number): void };
 }
@@ -93,9 +97,12 @@ function Harness() {
       <p data-testid="query">{session.query || '(none)'}</p>
       <p data-testid="files">{session.files.length}</p>
       <p data-testid="lossless">{String(session.filters.losslessOnly)}</p>
+      <p data-testid="expected">{String(session.expectedTracks)}</p>
       <button type="button" onClick={() => tabs.open()}>open</button>
       <button type="button" onClick={() => session.runSearch('shackleton', 5)}>search</button>
       <button type="button" onClick={() => tabs.openWith('one')}>find:one</button>
+      <button type="button" onClick={() => tabs.openWith('release', 13)}>find:release</button>
+      <button type="button" onClick={() => tabs.openWith('release')}>rerun:release</button>
       <button type="button" onClick={() => tabs.openWith('two')}>find:two</button>
       <button type="button" onClick={() => tabs.markUsed()}>used</button>
       <p data-testid="count">{tabs.tabs.length}</p>
@@ -270,5 +277,28 @@ describe('a spent tab expires', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('a search started from a release carries its track count', () => {
+  it('sets it, keeps it per tab, and clears it on a plain re-run', () => {
+    mount();
+    const first = read('active')!;
+    click('find:release');
+    expect(read('expected')).toBe('13');
+
+    // A different search opens its own tab with no count of its own.
+    click('find:one');
+    expect(read('expected')).toBe('null');
+
+    // Coming back restores the count with the tab.
+    click(`select:${first}`);
+    expect(read('expected')).toBe('13');
+
+    // Re-running the same tab's text WITHOUT a release behind it is a hand
+    // re-run: an edited query is no longer that pressing, so the count must
+    // not survive it.
+    click('rerun:release');
+    expect(read('expected')).toBe('null');
   });
 });
