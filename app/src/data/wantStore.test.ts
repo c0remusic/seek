@@ -30,6 +30,16 @@ describe('queryForEntry', () => {
     expect(queryForEntry({ artist: '', title: 'Archangel', album: null }))
       .toBe('Archangel');
   });
+
+  it('a Various Artists credit searches the title alone', () => {
+    expect(queryForEntry({ artist: 'Various', title: 'x', album: 'Hyperdub 10.1' }))
+      .toBe('Hyperdub 10.1');
+  });
+
+  it('edition noise never reaches the query', () => {
+    expect(queryForEntry({ artist: 'Burial', title: 'x', album: 'Untrue (2019 Reissue)' }))
+      .toBe('Burial Untrue');
+  });
 });
 
 describe('resultsMatch', () => {

@@ -7,7 +7,25 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { fuzzyKey } from './text.ts';
+import { fuzzyKey, stripReleaseNoise } from './text.ts';
+
+describe('stripReleaseNoise', () => {
+  it('drops a bracket only when ALL of it is edition noise', () => {
+    expect(stripReleaseNoise('Untrue (2019 Reissue)')).toBe('Untrue');
+    expect(stripReleaseNoise('Untrue [Deluxe Edition]')).toBe('Untrue');
+    expect(stripReleaseNoise('Untrue (Remastered)')).toBe('Untrue');
+  });
+
+  it('keeps brackets that carry identity', () => {
+    expect(stripReleaseNoise('Enjoy (Ricardo Villalobos Remix)'))
+      .toBe('Enjoy (Ricardo Villalobos Remix)');
+    expect(stripReleaseNoise('Untrue [Hyperdub]')).toBe('Untrue [Hyperdub]');
+  });
+
+  it('leaves a bracketless title byte-identical', () => {
+    expect(stripReleaseNoise('Untrue')).toBe('Untrue');
+  });
+});
 
 describe('fuzzyKey', () => {
   it('latin keys are unchanged — the regression tripwire', () => {

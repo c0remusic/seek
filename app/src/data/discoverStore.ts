@@ -26,6 +26,7 @@ import { playlistEntries } from '../domain/playlistImport.ts';
 import type { PlaylistEntry } from '../domain/playlistImport.ts';
 import type { DiscogsWant } from '../domain/wantlistImport.ts';
 import { parseTitle, searchQuery } from '../domain/parseTitle.ts';
+import { isVariousArtists, stripReleaseNoise } from '../domain/text.ts';
 import type { TitleSource } from '../domain/parseTitle.ts';
 
 export type DiscoverKind = 'track' | 'release' | 'artist' | 'label';
@@ -278,7 +279,16 @@ export function previewFromWire(d: WireParsed): DiscoverPreview {
 export function previewQuery(preview: DiscoverPreview | null): string {
   if (!preview) return '';
   if (preview.kind === 'release' && preview.album) {
-    return searchQuery({ artist: preview.artist, title: preview.album });
+    // Two conservative touches, both fixing queries no peer's folder answers:
+    // "(2019 Reissue)" and friends are stripped (a token nobody's path
+    // contains ANDs the search down to nothing), and a Various Artists credit
+    // searches the title alone — the same call resolveVarious makes, which
+    // provider-stated fields used to bypass, sending the literal word
+    // "Various" to Soulseek.
+    return searchQuery({
+      artist: isVariousArtists(preview.artist) ? '' : preview.artist,
+      title: stripReleaseNoise(preview.album),
+    });
   }
   if (preview.kind === 'artist' || preview.kind === 'label') {
     // `title` is the name; `artist` is empty for a label and the same string
