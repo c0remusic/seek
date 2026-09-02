@@ -1,0 +1,26 @@
+{
+  "id": 106468,
+  "main_release": 1125103,
+  "most_recent_release": 1125103,
+  "title": "Untrue",
+  "year": 2007,
+  "uri": "https://www.discogs.com/master/106468-Burial-Untrue",
+  "resource_url": "https://api.discogs.com/masters/106468",
+  "artists": [
+    {"name": "Burial (2)", "join": "", "id": 12345, "resource_url": ""}
+  ],
+  "genres": ["Electronic"],
+  "styles": ["Dubstep"],
+  "images": [
+    {"type": "primary", "uri": "https://img.example/master.jpg", "uri150": "https://img.example/master-150.jpg"}
+  ],
+  "tracklist": [
+    {"position": "1", "type_": "track", "title": "Untitled", "duration": "0:46",
+     "artists": [{"name": "Burial (2)", "join": ""}]},
+    {"position": "2", "type_": "track", "title": "Archangel", "duration": "3:59"}
+  ],
+  "videos": [],
+  "num_for_sale": 0,
+  "lowest_price": null,
+  "data_quality": "Correct"
+}

@@ -52,7 +52,39 @@ export function fuzzyKey(s: string): string {
   t = t.replace(/\b(feat|ft|featuring)\.?\s+/g, ' ');
   t = t.replace(/[^a-z0-9]+/g, ' ');
   t = t.replace(/^(the|a|an)\s+/, '');
-  return squash(t);
+  const key = squash(t);
+  if (key) return key;
+  /* The [a-z0-9] collapse empties anything written outside latin — a Cyrillic
+   * or CJK title keyed to '' matched nothing and got dropped from grouping,
+   * which is a silent no for entire catalogues. Fallback-ONLY, so a string
+   * with any latin content keeps today's key and no existing group can
+   * re-bucket. No article strip here: articles are a latin concern. */
+  return squash(deaccent(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' '));
+}
+
+/**
+ * One word of pure edition noise. Ported from the sidecar's enrich._NOISE —
+ * plus the connective vocabulary editions use around it — so both sides mean
+ * the same thing by "noise".
+ */
+const EDITION_NOISE_WORD =
+  /^(?:remaster(?:ed)?|deluxe|expanded|explicit|bonus|reissue|mono|stereo|web|vinyl|cd|flac|mp3|24bit|16bit|\d{3,4}kbps|edition|anniversary|version|\d{4})$/i;
+
+/**
+ * Drop a bracketed segment from a release title ONLY when its entire content
+ * is edition noise. "(2019 Reissue)" and "(Deluxe Edition)" go — no peer's
+ * folder is named that way, and a query token nobody's path contains returns
+ * nothing. "(Ricardo Villalobos Remix)" and "[Hyperdub]" survive, because a
+ * remix is a different record and a label is a real discriminator — the same
+ * all-or-nothing rule fuzzyKey applies to "(Original Mix)".
+ */
+export function stripReleaseNoise(title: string): string {
+  const out = title.replace(/[([][^)\]]*[)\]]/g, (seg) => {
+    const words = seg.slice(1, -1).split(/[\s.,&/-]+/).filter(Boolean);
+    return words.length > 0 && words.every((w) => EDITION_NOISE_WORD.test(w))
+      ? ' ' : seg;
+  });
+  return squash(out);
 }
 
 /** Folder names that never identify an artist. Used when climbing the path. */

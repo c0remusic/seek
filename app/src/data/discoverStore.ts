@@ -26,6 +26,7 @@ import { playlistEntries } from '../domain/playlistImport.ts';
 import type { PlaylistEntry } from '../domain/playlistImport.ts';
 import type { DiscogsWant } from '../domain/wantlistImport.ts';
 import { parseTitle, searchQuery } from '../domain/parseTitle.ts';
+import { isVariousArtists, stripReleaseNoise } from '../domain/text.ts';
 import type { TitleSource } from '../domain/parseTitle.ts';
 
 export type DiscoverKind = 'track' | 'release' | 'artist' | 'label';
@@ -47,7 +48,10 @@ export interface WireParsed {
   artworkUri: string | null;
   duration: number | null;
   genres: string[];
-  tracklist: Array<{ position: number; title: string; artist: string; duration: number | null }>;
+  tracklist: Array<{
+    position: number; title: string; artist: string; duration: number | null;
+    disc: number | null; rawPosition: string | null;
+  }>;
   providerUrl: string | null;
 }
 
@@ -67,6 +71,9 @@ export interface DiscoverPreview {
   artworkUri: string | null;
   genres: string[];
   trackCount: number;
+  /** The provider's own tracklist — kept whole, not just counted, so adding
+   *  the release to the want list carries every track it named. */
+  tracklist: WireParsed['tracklist'];
   /** 1 when the provider stated the fields outright; a parse score otherwise. */
   confidence: number;
   /** Null when nothing was parsed — the provider simply told us. */
@@ -170,7 +177,7 @@ function skeleton(url: string, provider: UrlProvider | null): DiscoverPreview {
   return {
     url, provider, kind: 'track', rawTitle: '', artist: '', title: '',
     album: null, year: null, label: null, catalogNumber: null,
-    artworkUri: null, genres: [], trackCount: 0,
+    artworkUri: null, genres: [], trackCount: 0, tracklist: [],
     confidence: 0, parsedFrom: null, loading: true, error: null, needs: '',
   };
 }
@@ -246,6 +253,7 @@ export function previewFromWire(d: WireParsed): DiscoverPreview {
     artworkUri: d.artworkUri,
     genres: d.genres ?? [],
     trackCount: (d.tracklist ?? []).length,
+    tracklist: d.tracklist ?? [],
     confidence: stated ? 1 : (parsed?.confidence ?? 0),
     parsedFrom: stated ? null : (parsed?.from ?? null),
     loading: false,
@@ -271,7 +279,16 @@ export function previewFromWire(d: WireParsed): DiscoverPreview {
 export function previewQuery(preview: DiscoverPreview | null): string {
   if (!preview) return '';
   if (preview.kind === 'release' && preview.album) {
-    return searchQuery({ artist: preview.artist, title: preview.album });
+    // Two conservative touches, both fixing queries no peer's folder answers:
+    // "(2019 Reissue)" and friends are stripped (a token nobody's path
+    // contains ANDs the search down to nothing), and a Various Artists credit
+    // searches the title alone — the same call resolveVarious makes, which
+    // provider-stated fields used to bypass, sending the literal word
+    // "Various" to Soulseek.
+    return searchQuery({
+      artist: isVariousArtists(preview.artist) ? '' : preview.artist,
+      title: stripReleaseNoise(preview.album),
+    });
   }
   if (preview.kind === 'artist' || preview.kind === 'label') {
     // `title` is the name; `artist` is empty for a label and the same string
@@ -372,6 +389,7 @@ export function useDiscover(client: SidecarClient | null): DiscoverSession {
         artworkUri: null,
         genres: [],
         trackCount: 0,
+        tracklist: [],
         /* AcoustID's own score, passed through rather than reinterpreted. It
          * is confidence that the FINGERPRINT matched, which is a different
          * claim from "this metadata is right" — the card words it that way. */

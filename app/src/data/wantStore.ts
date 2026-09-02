@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
 import { useSidecarGeneration } from './useSidecarGeneration.ts';
-import { fuzzyKey } from '../domain/text.ts';
+import { fuzzyKey, isVariousArtists, stripReleaseNoise } from '../domain/text.ts';
 
 export type WantStatus = 'pending' | 'searching' | 'found' | 'downloaded' | 'not_found';
 export type WantSource = 'youtube' | 'bandcamp' | 'discogs' | 'manual' | 'fingerprint';
@@ -40,7 +40,10 @@ export interface WantEntry {
   searchedAt: number | null;
   notes: string | null;
   duration: number | null;
-  tracklist: Array<{ position: number; title: string; artist: string; duration: number | null }>;
+  tracklist: Array<{
+    position: number; title: string; artist: string; duration: number | null;
+    disc: number | null; rawPosition: string | null;
+  }>;
   /** The digging session this was saved during, if any. */
   sessionId: string | null;
 }
@@ -78,9 +81,12 @@ function complete(entry: NewWantEntry): WantEntry {
 
 export function queryForEntry(entry: Pick<WantEntry, 'artist' | 'title' | 'album'>): string {
   // A release searches for the album: the unit a DJ downloads is a folder
-  // (docs/PRODUCT.md §4).
-  const what = entry.album ?? entry.title;
-  return `${entry.artist} ${what}`.replace(/\s+/g, ' ').trim();
+  // (docs/PRODUCT.md §4). Edition noise is stripped and a Various Artists
+  // credit searches the title alone — see previewQuery, which makes the same
+  // two calls for the same reasons.
+  const what = stripReleaseNoise(entry.album ?? entry.title);
+  const artist = isVariousArtists(entry.artist) ? '' : entry.artist;
+  return `${artist} ${what}`.replace(/\s+/g, ' ').trim();
 }
 
 /**

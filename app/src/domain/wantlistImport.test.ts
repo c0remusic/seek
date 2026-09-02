@@ -127,6 +127,12 @@ describe('wantQuery', () => {
     expect(wantQuery(want({ artist: 'Burial', title: 'Untrue' }))).toBe('Burial Untrue');
   });
 
+  it('a Various Artists row searches the title alone', () => {
+    // Discogs wantlists credit compilations with the literal "Various".
+    expect(wantQuery(want({ artist: 'Various', title: 'Hyperdub 10.1' })))
+      .toBe('Hyperdub 10.1');
+  });
+
   it('drops the empty half rather than leaving a stray space', () => {
     expect(wantQuery(want({ artist: '', title: 'Untrue' }))).toBe('Untrue');
     expect(wantQuery(want({ artist: 'Burial', title: '' }))).toBe('Burial');

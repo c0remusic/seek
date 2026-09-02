@@ -141,14 +141,18 @@ export function SearchView({
     [session.rows],
   );
 
-  /* MusicBrainz's track count for a release, when the artwork lookup matched.
-   * The card already shows it as "11 of 13". It is the only source here that
+  /* The catalogue's track count for a release — the only kind of source that
    * can PROVE a copy is short of the record, which is why the sheet takes it
-   * rather than inferring completeness from the other copies. */
-  const artworkTracks = useCallback((id: string) => {
+   * rather than inferring completeness from the other copies. Two providers,
+   * in order of authority: a search started from a Discogs release carries
+   * that release's exact count (the user chose the pressing); otherwise the
+   * artwork lookup's MusicBrainz count, which is a score-70 fuzzy re-search
+   * of the folder name and can be a different edition. */
+  const catalogueTracks = useCallback((id: string) => {
+    if (session.expectedTracks !== null) return session.expectedTracks;
     const art = artwork?.get(id);
     return art?.state === 'ready' ? art.trackCount : null;
-  }, [artwork]);
+  }, [artwork, session.expectedTracks]);
 
   const queueRelease = useCallback((release: Release) => {
     setRefused(null);
@@ -212,9 +216,15 @@ export function SearchView({
     if (!discover) return;
     const q = discover.query();
     if (!q) return;
+    // A release preview knows its exact tracklist; carry the count into the
+    // tab so completeness judges copies against the pressing the user chose
+    // rather than a MusicBrainz re-search of the folder name.
+    const p = discover.preview;
+    const expected =
+      p && p.kind === 'release' && p.trackCount > 0 ? p.trackCount : null;
     // `run` sets the box itself now, so the pairing is no longer manual.
-    if (tabs) tabs.openWith(q);
-    else session.run(q);
+    if (tabs) tabs.openWith(q, expected);
+    else session.run(q, { expectedTracks: expected });
     discover.dismiss();
   }, [discover, session, tabs]);
 
@@ -541,6 +551,7 @@ export function SearchView({
         onCompare={setComparing}
         onBrowse={onBrowse}
         artwork={artwork}
+        expectedTracks={session.expectedTracks}
         library={library}
         peers={peers}
         onContext={onContext}
@@ -584,7 +595,7 @@ export function SearchView({
         <CopiesSheet
           target={comparing}
           copies={copiesOf(comparing, copyGroups)}
-          catalogueTracks={artworkTracks(comparing.id)}
+          catalogueTracks={catalogueTracks(comparing.id)}
           peers={peers}
           onQueue={(copy) => { queueRelease(copy); setComparing(null); }}
           onClose={() => setComparing(null)}

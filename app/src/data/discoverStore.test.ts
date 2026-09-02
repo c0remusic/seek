@@ -65,8 +65,8 @@ describe('previewFromWire — Bandcamp and Discogs, where fields are stated', ()
       title: 'In Full Effect', album: 'In Full Effect', year: 2024,
       label: 'Tim Reaper',
       tracklist: [
-        { position: 1, title: 'Continuities', artist: '', duration: 395 },
-        { position: 2, title: 'Blood Pressure', artist: '', duration: 317 },
+        { position: 1, title: 'Continuities', artist: '', duration: 395, disc: null, rawPosition: null },
+        { position: 2, title: 'Blood Pressure', artist: '', duration: 317, disc: null, rawPosition: null },
       ],
     }));
     expect(p.artist).toBe('Tim Reaper, Kloke');
@@ -97,6 +97,7 @@ describe('previewFromWire — Bandcamp and Discogs, where fields are stated', ()
       genres: ['Electronic', 'Dubstep'],
       tracklist: new Array(13).fill(null).map((_x, i) => ({
         position: i + 1, title: `t${i}`, artist: '', duration: null,
+        disc: null, rawPosition: null,
       })),
     }));
     expect(p.label).toBe('Hyperdub');
@@ -161,6 +162,31 @@ describe('previewQuery', () => {
   it('an unparseable title still yields something searchable', () => {
     const p = previewFromWire(wire({ rawTitle: 'TRAUMPRINZ All The Things' }));
     expect(previewQuery(p)).toBe('TRAUMPRINZ All The Things');
+  });
+
+  it('a Various Artists release searches the title alone', () => {
+    // Provider-stated fields bypass resolveVarious, so this used to send the
+    // literal word "Various" to Soulseek — a token no peer's folder contains.
+    const p = previewFromWire(wire({
+      sourceKind: 'discogs', kind: 'release', artist: 'Various',
+      title: 'Hyperdub 10.1', album: 'Hyperdub 10.1',
+    }));
+    expect(previewQuery(p)).toBe('Hyperdub 10.1');
+  });
+
+  it('edition noise is stripped from the query; a remix credit is not', () => {
+    const reissue = previewFromWire(wire({
+      sourceKind: 'discogs', kind: 'release', artist: 'Burial',
+      title: 'Untrue (2019 Reissue)', album: 'Untrue (2019 Reissue)',
+    }));
+    expect(previewQuery(reissue)).toBe('Burial Untrue');
+
+    const remix = previewFromWire(wire({
+      sourceKind: 'discogs', kind: 'release', artist: 'Depeche Mode',
+      title: 'Enjoy (Ricardo Villalobos Remix)',
+      album: 'Enjoy (Ricardo Villalobos Remix)',
+    }));
+    expect(previewQuery(remix)).toBe('Depeche Mode Enjoy (Ricardo Villalobos Remix)');
   });
 });
 

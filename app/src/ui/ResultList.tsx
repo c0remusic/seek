@@ -111,6 +111,7 @@ const STAGGER_MAX = 130;
 export function ResultList({
   rows, currentTick, expanded, onToggle, onQueue, onBrowse, onContext, pendingCount, onFoldIn,
   onViewport, emptyState, density, columns = DEFAULT_COLUMNS, artwork, library, peers,
+  expectedTracks = null,
   copies, onCompare,
 }: {
   rows: Row[];
@@ -124,6 +125,9 @@ export function ResultList({
   onBrowse?(username: string): void;
   onContext?(row: Row, x: number, y: number): void;
   artwork?: ArtworkSession;
+  /** The searched release's own track count, when the search came from a
+   *  provider release. Outranks the artwork lookup's on the cards. */
+  expectedTracks?: number | null;
   library?: LibrarySession;
   /** Your own transfer history with each peer. Absent means never met. */
   peers?: PeerLookup;
@@ -409,7 +413,7 @@ export function ResultList({
                   }}
                 >
                   {renderRow(row, expanded, onToggle, onQueue, density, onBrowse, artwork, peers,
-                    library, copies, onCompare)}
+                    library, copies, onCompare, expectedTracks)}
                 </div>
               );
             })}
@@ -432,6 +436,7 @@ function renderRow(
   library?: LibrarySession,
   copies?: Map<string, Release[]>,
   onCompare?: (release: Release) => void,
+  expectedTracks?: number | null,
 ) {
   switch (row.kind) {
     case 'track':
@@ -450,6 +455,7 @@ function renderRow(
       return (
         <ReleaseCard
           art={artwork?.get(row.release.id)}
+          expectedTracks={expectedTracks}
           owned={library?.hasRelease(row.release.artist, row.release.title)}
           release={row.release}
           expanded={expanded.has(row.id)}

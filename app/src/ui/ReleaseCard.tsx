@@ -61,9 +61,14 @@ export function ReleaseCard({
   art,
   owned,
   release, expanded, onToggle, onQueue, density, peers, copyCount = 1, onCompare,
+  expectedTracks = null,
 }: {
   /** Cover state for this release, if one has been asked for. */
   art?: ArtState;
+  /** The searched release's own track count, when the search came from a
+   *  provider release (a Discogs link names its pressing exactly). Outranks
+   *  the artwork lookup's MusicBrainz count, which is a fuzzy re-search. */
+  expectedTracks?: number | null;
   /** Already on disk. The single most useful thing to know about a result. */
   owned?: boolean;
   release: Release;
@@ -108,19 +113,28 @@ export function ReleaseCard({
           )}
         </span>
 
-        {/* Completeness. Only shown when MusicBrainz actually knew the release
+        {/* Completeness. Only shown when a catalogue actually knew the release
             — a missing count is silence, never "0 of 0". A short folder is the
-            single most common disappointment in a Soulseek download. */}
-        {art?.state === 'ready' && art.trackCount > 0
-          && release.trackCount < art.trackCount && (
-          <span
-            className="partial"
-            title={`MusicBrainz lists ${art.trackCount} tracks for this release; this folder has ${release.trackCount}.`}
-          >
-            <span className="tnum">{release.trackCount}</span> of{' '}
-            <span className="tnum">{art.trackCount}</span>
-          </span>
-        )}
+            single most common disappointment in a Soulseek download. The
+            searched release's own count outranks the artwork lookup's:
+            MusicBrainz was found by fuzzily re-searching the folder name and
+            can be a different edition. */}
+        {(() => {
+          const catalogue = expectedTracks
+            ?? (art?.state === 'ready' && art.trackCount > 0 ? art.trackCount : null);
+          const from = expectedTracks !== null ? 'The searched release lists'
+            : 'MusicBrainz lists';
+          return catalogue !== null && catalogue > 0
+            && release.trackCount < catalogue && (
+            <span
+              className="partial"
+              title={`${from} ${catalogue} tracks for this release; this folder has ${release.trackCount}.`}
+            >
+              <span className="tnum">{release.trackCount}</span> of{' '}
+              <span className="tnum">{catalogue}</span>
+            </span>
+          );
+        })()}
 
         {owned && (
           <span className="owned" title="You already have this release on disk">

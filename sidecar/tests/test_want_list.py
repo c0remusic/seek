@@ -245,6 +245,29 @@ def test_an_entry_written_by_an_older_build_is_still_emittable(host):
     protocol.validate_event("want.changed", state)
 
 
+def test_a_tracklist_row_written_by_an_older_build_is_still_emittable(host):
+    """Same regression as above, one level down: the validator refuses missing
+    keys inside tracklist ROWS too, so a row persisted before `disc` and
+    `rawPosition` existed must be backfilled on read or the whole event dies."""
+    from seek_sidecar import protocol
+
+    ancient = {
+        "id": "old2", "artist": "Burial", "title": "Untrue",
+        "sourceKind": "discogs", "status": "pending", "addedAt": 1.0,
+        "tracklist": [
+            {"position": 2, "title": "Archangel", "artist": "", "duration": 239},
+        ],
+    }
+    host._save_state(want_list=[ancient])
+
+    state = host._cmd_want_list({})
+    row = state["entries"][0]["tracklist"][0]
+    assert row["disc"] is None
+    assert row["rawPosition"] is None
+    assert row["duration"] == 239
+    protocol.validate_event("want.changed", state)
+
+
 def test_garbage_in_the_state_file_is_skipped_not_crashed_on(host):
     host._save_state(want_list=["not an entry", {}, {"id": "ok", "title": "T"}])
     assert [e["id"] for e in host._cmd_want_list({})["entries"]] == ["ok"]

@@ -209,6 +209,77 @@ def test_discogs_release():
     assert archangel["duration"] == 239
 
 
+def test_fuzzy_identity_survives_non_latin_scripts():
+    """The [a-z0-9] collapse keyed every Cyrillic and CJK name to '' — and an
+    empty key made _resembles refuse the name outright, so discogs_find_id
+    rejected entire non-latin catalogues. Latin keys must not move."""
+    assert discover._fuzzy("Burial (2)") == "burial2"      # unchanged
+    assert discover._fuzzy("Кино") != ""
+    assert discover._fuzzy("Кино") == discover._fuzzy("кино")
+    assert discover._resembles("Кино", "Кино")
+    assert not discover._resembles("Кино", "Aphex Twin")
+    # Mixed script keeps the latin-only key, so nothing regroups.
+    assert discover._fuzzy("Кино Kino") == "kino"
+
+
+def test_discogs_positions_are_sequential_and_multi_disc_positions_state_the_disc():
+    """First-integer numbering gave a 2xCD two "track 1"s: "1-1" and "2-1"
+    both contain a 1. Sequential positions keep ordering and uniqueness; the
+    disc comes from the position SHAPE, and the raw string keeps the truth."""
+    rows = discover._discogs_tracklist({"tracklist": [
+        {"position": "1-1", "type_": "track", "title": "a", "duration": "1:00"},
+        {"position": "1-2", "type_": "track", "title": "b"},
+        {"position": "2-1", "type_": "track", "title": "c"},
+    ]})
+    assert [r["position"] for r in rows] == [1, 2, 3]
+    assert [r["disc"] for r in rows] == [1, 1, 2]
+    assert [r["rawPosition"] for r in rows] == ["1-1", "1-2", "2-1"]
+
+
+def test_discogs_vinyl_sides_pair_into_discs():
+    rows = discover._discogs_tracklist({"tracklist": [
+        {"position": "A1", "type_": "track", "title": "a"},
+        {"position": "A2", "type_": "track", "title": "b"},
+        {"position": "B1", "type_": "track", "title": "c"},
+        {"position": "C1", "type_": "track", "title": "d"},
+    ]})
+    assert [r["position"] for r in rows] == [1, 2, 3, 4]
+    assert [r["disc"] for r in rows] == [1, 1, 1, 2]
+
+
+def test_discogs_unparseable_positions_never_guess_a_disc():
+    rows = discover._discogs_tracklist({"tracklist": [
+        {"position": "AA", "type_": "track", "title": "a"},
+        {"position": "", "type_": "track", "title": "b"},
+    ]})
+    assert [r["position"] for r in rows] == [1, 2]
+    assert [r["disc"] for r in rows] == [None, None]
+    assert rows[0]["rawPosition"] == "AA"
+    assert rows[1]["rawPosition"] is None
+
+
+def test_discogs_master_reads_what_a_master_actually_carries():
+    """A /masters/ payload has NO labels and NO formats — a master is the
+    abstraction over pressings, so label/catalogNumber staying None is the
+    honest answer, not a gap. The fixture is hand-built (see record.py): what
+    it pins is the absence of keys, which a live re-record cannot promise."""
+    payload = json_fixture("discogs-master-burial-untrue.json")
+    out = discover.parse_discogs(
+        "https://www.discogs.com/master/106468-Burial-Untrue", "a-token",
+        fetch_json=lambda *a, **k: payload, fetch_image=no_image,
+    )
+    assert out["sourceKind"] == "discogs"
+    assert out["kind"] == "release"
+    # The "(2)" Discogs disambiguator is stripped on the release credit AND
+    # on per-track credits.
+    assert out["artist"] == "Burial"
+    assert out["tracklist"][0]["artist"] == "Burial"
+    assert out["label"] is None
+    assert out["catalogNumber"] is None
+    assert out["year"] == 2007
+    assert [t["title"] for t in out["tracklist"]] == ["Untitled", "Archangel"]
+
+
 def test_discogs_sends_the_token_as_a_header_never_in_the_url():
     """A credential in a query string ends up in every log and proxy en route."""
     payload = json_fixture("discogs-release-burial-untrue.json")

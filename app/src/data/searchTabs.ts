@@ -49,7 +49,7 @@ export interface SearchTabs {
    * you just opened must not open a second one beside it and leave the first
    * blank forever.
    */
-  openWith(query: string): void;
+  openWith(query: string, expectedTracks?: number | null): void;
   /** Close one. Never closes the last: an empty window is not a state. */
   close(id: string): void;
   /**
@@ -85,6 +85,7 @@ function blank(session: SearchSession): SearchSnapshot {
     query: '', files: [], peers: [], filters: session.filters,
     groupBy: session.groupBy, sort: session.sort,
     expanded: new Set(), closedReason: null, tick: 0,
+    expectedTracks: null,
   };
 }
 
@@ -188,7 +189,7 @@ export function useSearchTabs(session: SearchSession): SearchTabs {
     setIds(next);
   }, [ids, activeId, session]);
 
-  const openWith = useCallback((query: string) => {
+  const openWith = useCallback((query: string, expectedTracks?: number | null) => {
     const text = query.trim();
     if (!text) return;
 
@@ -210,7 +211,7 @@ export function useSearchTabs(session: SearchSession): SearchTabs {
     } else {
       ranQuery.current.set(activeRef.current, text);
     }
-    session.run(text);
+    session.run(text, { expectedTracks: expectedTracks ?? null });
   }, [open, session]);
 
   const markUsed = useCallback(() => {

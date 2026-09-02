@@ -788,7 +788,10 @@ class MetadataApplyResult(TypedDict):
 
 class WantTrack(TypedDict):
     """One track in a release's expected tracklist, as the source gives it."""
-    # Track number. 0 when the source does not number it.
+    # 1-based SEQUENTIAL index across the release's real tracks — ordering and
+    # uniqueness guaranteed, unlike the source's own numbering, which restarts
+    # per disc and per vinyl side. 0 only when the source numbers nothing at
+    # all.
     position: int
     title: str
     # Empty unless the source credits the track separately, as it does on a
@@ -796,6 +799,13 @@ class WantTrack(TypedDict):
     artist: str
     # Seconds. Null when the source does not say.
     duration: Optional[int]
+    # Which disc, when the position shape says so confidently ("2-1" is disc
+    # 2; vinyl sides pair up, so A/B is disc 1 and C/D disc 2). Null rather
+    # than a guess for anything else.
+    disc: Optional[int]
+    # The source's position string verbatim ("A1", "1-2") — the truth
+    # `position` linearises. Null when the source gave none.
+    rawPosition: Optional[str]
 
 
 class DiscoverParseUrlParams(TypedDict):
@@ -2427,6 +2437,8 @@ STRUCT_FIELDS: Dict[str, Tuple[Tuple[str, str, bool, bool], ...]] = {
         ("title", "str", False, False),
         ("artist", "str", False, False),
         ("duration", "int", False, True),
+        ("disc", "int", False, True),
+        ("rawPosition", "str", False, True),
     ),
     "DiscoverParseUrlParams": (
         ("url", "str", False, False),
