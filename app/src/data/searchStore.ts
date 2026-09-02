@@ -28,6 +28,7 @@ import { TIER_RANK } from '../domain/quality.ts';
 import { reliabilityFrom } from '../domain/score.ts';
 import { adaptSearchResult, isAudioPath } from './adapt.ts';
 import type { WireSearchClosedData, WireSearchResultData } from './adapt.ts';
+import { loadLastFilters, saveLastFilters } from './filterPrefs.ts';
 import { GLOBAL_SCOPE } from './mockSidecar.ts';
 import type { SearchScope } from './mockSidecar.ts';
 import type { SidecarConnection } from './connectionStore.ts';
@@ -235,7 +236,10 @@ export function useSearchSession(
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [expectedTracks, setExpectedTracks] = useState<number | null>(null);
   const [scope, setScope] = useState<SearchScope>(GLOBAL_SCOPE);
-  const [filters, setFiltersState] = useState<Filters>(EMPTY_FILTERS);
+  /* Lazily seeded from the last-used set. Only the FIRST tab starts here —
+   * every later tab copies the active one (searchTabs.blank()), so the
+   * persistence decides nothing but what the app opens with. */
+  const [filters, setFiltersState] = useState<Filters>(loadLastFilters);
   // docs/PRODUCT.md §4: release cards are the default presentation.
   const [groupBy, setGroupByState] = useState<GroupBy>('release');
   const [sort, setSortState] = useState<SortKey>('best');
@@ -483,14 +487,20 @@ export function useSearchSession(
 
   /* ---- controls ---- */
 
+  /* The write-through lives in these two callbacks and nowhere else — not in
+   * restore(), because switching tabs is not "using" a filter set, and never
+   * inside an updater (StrictMode runs updaters twice; see searchTabs.test). */
   const setFilters = useCallback((next: Filters) => {
     resortAll.current = true;
     setFiltersState(next);
+    saveLastFilters(next);
   }, []);
 
   const resetFilters = useCallback(() => {
     resortAll.current = true;
-    setFiltersState({ ...EMPTY_FILTERS, formats: new Set() });
+    const next = { ...EMPTY_FILTERS, formats: new Set<string>() };
+    setFiltersState(next);
+    saveLastFilters(next);
   }, []);
 
   const setGroupBy = useCallback((g: GroupBy) => {

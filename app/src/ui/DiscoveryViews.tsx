@@ -16,7 +16,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from '../data/sidecarClient.ts';
 import { reportFailure } from '../data/noticeStore.ts';
 import type { Filters } from '../domain/types.ts';
-import { EMPTY_FILTERS } from '../domain/types.ts';
+import { EMPTY_FILTERS, normaliseFilters } from '../domain/types.ts';
 import { IconEmpty, IconSearch, IconUser, IconUsers } from '../icons/index.tsx';
 
 /* Filters contain a Set, which JSON cannot carry. These two are the only places
@@ -28,12 +28,9 @@ export function serialiseFilters(f: Filters): string {
 export function deserialiseFilters(json: string): Filters {
   if (!json) return EMPTY_FILTERS;
   try {
-    const raw = JSON.parse(json) as Record<string, unknown>;
-    return {
-      ...EMPTY_FILTERS,
-      ...raw,
-      formats: new Set(Array.isArray(raw.formats) ? (raw.formats as string[]) : []),
-    };
+    // normaliseFilters, not a spread: an unvalidated spread would let a stored
+    // blob from an older build smuggle wrong types into every filter check.
+    return normaliseFilters(JSON.parse(json));
   } catch {
     // A corrupt saved filter should not take the screen down with it.
     return EMPTY_FILTERS;
