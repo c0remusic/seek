@@ -784,6 +784,12 @@
   border-radius: var(--radius-pill); border: 0.5px dashed var(--border-control);
   font-size: var(--fs-caption); color: var(--text-secondary); cursor: default;
 }
+/* A saved preset and its delete ×, kept as one unit so wrapping the filter
+   row never strands an × away from its pill. */
+.preset__wrap { display: inline-flex; align-items: center; gap: 2px; }
+.preset__wrap .preset { border-style: solid; }
+.preset__form { display: inline-flex; }
+.preset__form .filters__text { width: 9rem; }
 /* Reserved so the row never reflows when Reset appears. */
 .filters__reset-slot { margin-left: auto; min-width: 5.5rem; display: flex; justify-content: flex-end; }
 .reset {
