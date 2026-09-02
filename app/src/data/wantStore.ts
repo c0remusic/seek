@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
 import { useSidecarGeneration } from './useSidecarGeneration.ts';
+import { reportFailure } from './noticeStore.ts';
 import { fuzzyKey, isVariousArtists, stripReleaseNoise } from '../domain/text.ts';
 
 /* The wire shapes come from the generated protocol — one source of truth,
@@ -110,17 +111,23 @@ export function useWant(client: SidecarClient | null): WantSession {
 
   const add = useCallback(async (incoming: NewWantEntry[]) => {
     if (!client || incoming.length === 0) return;
-    const result = await client.request<{ entries: WantEntry[] }>('want.add', {
-      entries: incoming.map(complete),
-    });
-    setEntries(result.entries ?? []);
+    // Caught here rather than at the six call sites: every one of them is a
+    // fire-and-forget `void want.add(...)` with nowhere to show a failure.
+    try {
+      const result = await client.request<{ entries: WantEntry[] }>('want.add', {
+        entries: incoming.map(complete),
+      });
+      setEntries(result.entries ?? []);
+    } catch (error) {
+      reportFailure('add to the want list')(error);
+    }
   }, [client]);
 
   const remove = useCallback((ids: string[]) => {
     if (!client || ids.length === 0) return;
     void client.request<{ entries: WantEntry[] }>('want.remove', { ids })
       .then((r) => setEntries(r.entries ?? []))
-      .catch(() => {});
+      .catch(reportFailure('remove from the want list'));
   }, [client]);
 
   const update = useCallback((id: string, patch: Partial<Pick<WantEntry,
@@ -133,7 +140,8 @@ export function useWant(client: SidecarClient | null): WantSession {
       album: patch.album ?? null,
       status: patch.status ?? null,
       notes: patch.notes ?? null,
-    }).then((r) => setEntries(r.entries ?? [])).catch(() => {});
+    }).then((r) => setEntries(r.entries ?? []))
+      .catch(reportFailure('update that want entry'));
   }, [client]);
 
   const pendingCount = useMemo(

@@ -2407,6 +2407,56 @@ export interface AnalysisFailedEvent {
   reason: string;
 }
 
+/**
+ * One remembered spectral finding — the summary of a past
+ * analysis.result, persisted by the sidecar so the most expensive
+ * answer the app computes survives a restart. Deliberately WITHOUT the
+ * spectrum curve and heatmap: those are recomputable decoration, and a
+ * client that wants the picture re-runs analysis.spectral on the path.
+ * A verdict never outlives the file it judged: entries are pruned when
+ * the file at `path` is gone or its size/mtime no longer match what
+ * was analysed.
+ */
+export interface SpectralVerdict {
+  /** Absolute local path of the analysed file. */
+  path: string;
+
+  /**
+   * The transfer the file came from, when the original request supplied one.
+   * Transfer ids are stable hashes, so this still names the same download
+   * after a restart.
+   */
+  transferId: string | null;
+  assessment: SpectralAssessment;
+
+  /** 0..1, as on AnalysisResultEvent. */
+  confidence: number;
+
+  /** Null when no shelf was found. */
+  cutoffHz: number | null;
+  shelfDropDb: number | null;
+  shelfWidthHz: number | null;
+  impliedSourceKbps: number | null;
+  sampleRate: number;
+  durationSeconds: number;
+  declaredLossless: boolean;
+  decodedWith: string;
+
+  /** Unix seconds when the analysis finished. */
+  analysedAt: number;
+
+  /** Byte size at analysis time — the staleness key. */
+  fileSize: number;
+
+  /** mtime at analysis time — the other half of it. */
+  fileMtime: number;
+}
+
+export interface SpectralVerdictsResult {
+  /** Every verdict whose file is unchanged. */
+  verdicts: SpectralVerdict[];
+}
+
 /** One folder offered to the network. */
 export interface SharedFolder {
   /**
@@ -2767,6 +2817,11 @@ export interface CommandParams {
   'transfer.list': Record<string, never>;
   /** Queue a post-download spectral analysis. Returns immediately. */
   'analysis.spectral': SpectralRequestParams;
+  /**
+   * Every persisted spectral verdict whose file is still the file that was
+   * analysed. Ask once per connection to reseed the client's memory.
+   */
+  'analysis.verdicts': Record<string, never>;
   /** Ask the server for the room list. Answers on the chat.rooms event. */
   'chat.rooms': Record<string, never>;
   /** Join a room and start receiving its messages. */
@@ -3036,6 +3091,7 @@ export interface CommandResult {
   'transfer.clear': Record<string, never>;
   'transfer.list': TransferListResult;
   'analysis.spectral': SpectralRequestResult;
+  'analysis.verdicts': SpectralVerdictsResult;
   'chat.rooms': Record<string, never>;
   'chat.join': Record<string, never>;
   'chat.leave': Record<string, never>;
@@ -3125,6 +3181,7 @@ export const COMMAND_NAMES = [
   'transfer.clear',
   'transfer.list',
   'analysis.spectral',
+  'analysis.verdicts',
   'chat.rooms',
   'chat.join',
   'chat.leave',

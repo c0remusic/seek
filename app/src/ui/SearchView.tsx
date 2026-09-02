@@ -28,6 +28,7 @@ import { CopiesSheet } from './CopiesSheet.tsx';
 import type { DownloadPrefs } from '../domain/preferences.ts';
 import { useSpringNumber } from '../motion/useSpring.ts';
 import { DiscoverPreviewCard } from './DiscoverPreview.tsx';
+import { ScopePicker } from './ScopePicker.tsx';
 import type { DiscoverSession } from '../data/discoverStore.ts';
 import type { PeerLookup } from './PeerHistory.tsx';
 import {
@@ -64,7 +65,7 @@ export function SearchView({
   session, searchRef, density, onDensity, columns, onColumns, tabs, transfers, onBrowse, onSave,
   artwork, library,
   onContext, onWish, prefs, discover, onOpenSettings, onWant, wanted, onBrowseCatalog, onWantTracklist, onWantPlaylist,
-  peers,
+  peers, joinedRooms,
 }: {
   session: SearchSession;
   searchRef: React.RefObject<HTMLInputElement | null>;
@@ -99,6 +100,8 @@ export function SearchView({
   onWantPlaylist?(): void;
   /** Your own transfer history with each peer, for the reliability chip. */
   peers?: PeerLookup;
+  /** Rooms the user has joined, offered as one-click scopes in the picker. */
+  joinedRooms?: string[];
   }) {
   const [advanced, setAdvanced] = useState(false);
   /** A file is being dragged over the search field. */
@@ -363,6 +366,11 @@ export function SearchView({
               discover?.inspect(e.clipboardData?.getData('text') ?? '');
             }}
           />
+          <ScopePicker
+            scope={session.scope}
+            onChange={session.setScope}
+            joinedRooms={joinedRooms}
+          />
           <kbd className="search__kbd" aria-hidden>⌘↵</kbd>
         </div>
 
@@ -503,6 +511,21 @@ export function SearchView({
               >
                 stopped listening
               </span>
+            )}
+            {/* Only for the two natural endings. There is no protocol way to
+              * extend a live search, so the honest offer is a fresh one — and
+              * after 'stopped' the user just asked for silence, while
+              * 'disconnected' already has its own banner below. */}
+            {!session.running
+              && (session.closedReason === 'timeout' || session.closedReason === 'result_cap')
+              && session.query.trim() !== '' && (
+              <button
+                type="button"
+                className="verify pressable"
+                onPointerDown={() => session.run()}
+              >
+                Search again
+              </button>
             )}
           </div>
 

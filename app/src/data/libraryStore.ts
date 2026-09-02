@@ -25,6 +25,8 @@ export type {
   LibraryGap, LibraryGaps, LibraryRelease, LibraryState,
 } from '../../../shared/protocol.ts';
 import type { LibraryGaps, LibraryRelease, LibraryState } from '../../../shared/protocol.ts';
+import { ASSESSMENT_TONE } from './analysisStore.ts';
+import type { AnalysisEntry, SpectralAssessment } from './analysisStore.ts';
 
 /* --- mirror of sidecar/library.py. Keep in step. --- */
 const BRACKETS = /[[(][^\])]*[\])]/g;
@@ -49,6 +51,41 @@ export function releaseKey(artist: string | null, release: string): string {
 
 export function trackKey(artist: string | null, title: string): string {
   return `${normalise(artist)}|${normalise(title)}`.replace(/^\||\|$/g, '');
+}
+
+/**
+ * The spectral verdicts sitting under one release's folder.
+ *
+ * Pure over the analysis map so LibraryView can call it per row and the tests
+ * need no React. Paths come from the OS the SIDECAR runs on — `\` on Windows,
+ * `/` on mac — so containment is tested against both separators rather than
+ * whatever this webview's platform would guess. `worst` uses the tone order
+ * bad > warn > unknown > good: one suspect file taints the release, which is
+ * the direction a collector actually cares about.
+ */
+export function verdictsUnder(
+  folder: string,
+  byPath: Map<string, AnalysisEntry>,
+): { worst: SpectralAssessment | null; files: Array<{ path: string; assessment: SpectralAssessment }> } {
+  const files: Array<{ path: string; assessment: SpectralAssessment }> = [];
+  if (folder) {
+    for (const [path, entry] of byPath) {
+      if (!path.startsWith(folder + '/') && !path.startsWith(folder + '\\')) continue;
+      const assessment = entry.result?.assessment ?? entry.verdict?.assessment;
+      if (assessment) files.push({ path, assessment });
+    }
+  }
+  files.sort((a, b) => (a.path < b.path ? -1 : 1));
+  const rank: Record<'bad' | 'warn' | 'unknown' | 'good', number> = {
+    bad: 3, warn: 2, unknown: 1, good: 0,
+  };
+  let worst: SpectralAssessment | null = null;
+  for (const f of files) {
+    if (worst === null || rank[ASSESSMENT_TONE[f.assessment]] > rank[ASSESSMENT_TONE[worst]]) {
+      worst = f.assessment;
+    }
+  }
+  return { worst, files };
 }
 
 export interface LibrarySession {

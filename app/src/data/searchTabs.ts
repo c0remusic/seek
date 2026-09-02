@@ -86,6 +86,9 @@ function blank(session: SearchSession): SearchSnapshot {
     groupBy: session.groupBy, sort: session.sort,
     expanded: new Set(), closedReason: null, tick: 0,
     expectedTracks: null,
+    // Scope carries over like filters: where you search is a way of working,
+    // not a property of one query.
+    scope: session.scope,
   };
 }
 
