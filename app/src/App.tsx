@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './ui/Sidebar.tsx';
 import { ErrorBoundary } from './ui/ErrorBoundary.tsx';
 import { UpdateBanner } from './ui/UpdateBanner.tsx';
+import { Notice } from './ui/Notice.tsx';
+import { reportFailure } from './data/noticeStore.ts';
 import type { ConnectionStatus, Section } from './ui/Sidebar.tsx';
 import type { SearchSession } from './data/searchStore.ts';
 import type { SidecarClient } from './data/sidecarClient.ts';
@@ -445,7 +447,8 @@ export default function App() {
   const addWish = useCallback((query: string) => {
     const q = query.trim();
     if (!q || !session.client) return;
-    void session.client.request('wishlist.add', { query: q }).catch(() => {});
+    void session.client.request('wishlist.add', { query: q })
+      .catch(reportFailure('add to the wishlist'));
     go('wishlist');
   }, [session.client, go]);
 
@@ -690,7 +693,8 @@ export default function App() {
         run: () => {
           const q = session.query.trim();
           if (!q) return;
-          void session.client?.request('wishlist.add', { query: q }).catch(() => {});
+          void session.client?.request('wishlist.add', { query: q })
+            .catch(reportFailure('add to the wishlist'));
           go('wishlist');
         },
       });
@@ -702,7 +706,7 @@ export default function App() {
           if (!q) return;
           void session.client?.request('saved.add', {
             query: q, filtersJson: serialiseFilters(session.filters),
-          }).catch(() => {});
+          }).catch(reportFailure('save this search'));
         },
       });
     }
@@ -750,7 +754,8 @@ export default function App() {
         { id: 'browse', label: `Browse ${who}`, separated: true,
           run: () => { browse.browse(who); go('browsing'); } },
         { id: 'follow', label: `Follow ${who}`,
-          run: () => void session.client?.request('buddies.add', { username: who }).catch(() => {}) },
+          run: () => void session.client?.request('buddies.add', { username: who })
+            .catch(reportFailure(`follow ${who}`)) },
         { id: 'msg', label: `Message ${who}`,
           run: () => { chat.openPrivate(who); go('messages'); } },
         { id: 'wish', label: 'Add to wishlist', separated: true,
@@ -771,7 +776,8 @@ export default function App() {
         { id: 'browse', label: `Browse ${who}`, separated: true,
           run: () => { browse.browse(who); go('browsing'); } },
         { id: 'follow', label: `Follow ${who}`,
-          run: () => void session.client?.request('buddies.add', { username: who }).catch(() => {}) },
+          run: () => void session.client?.request('buddies.add', { username: who })
+            .catch(reportFailure(`follow ${who}`)) },
         { id: 'msg', label: `Message ${who}`,
           run: () => { chat.openPrivate(who); go('messages'); } },
         { id: 'wish', label: 'Add to wishlist', separated: true,
@@ -786,7 +792,8 @@ export default function App() {
         { id: 'browse', label: `Browse everything ${who} shares`,
           run: () => { browse.browse(who); go('browsing'); } },
         { id: 'follow', label: `Follow ${who}`,
-          run: () => void session.client?.request('buddies.add', { username: who }).catch(() => {}) },
+          run: () => void session.client?.request('buddies.add', { username: who })
+            .catch(reportFailure(`follow ${who}`)) },
         { id: 'msg', label: `Message ${who}`,
           run: () => { chat.openPrivate(who); go('messages'); } },
         { id: 'copyuser', label: 'Copy username', separated: true, run: copy(who) },
@@ -803,6 +810,7 @@ export default function App() {
         onInstall={updates.install}
         onDismiss={updates.dismiss}
       />
+      <Notice />
       <ContextMenu request={menu} onClose={() => setMenu(null)} />
       <CommandPalette
         open={paletteOpen}
@@ -844,6 +852,7 @@ export default function App() {
             onBrowse={(who) => { browse.browse(who); go('browsing'); }}
             prefs={prefs.settings}
             peers={(username) => prefs.peers.get(username)}
+            joinedRooms={chat.rooms.filter((r) => r.joined).map((r) => r.name)}
             discover={discover.enabled ? discover : undefined}
             onOpenSettings={() => go('settings')}
             onWant={want.enabled ? addPreviewToWant : undefined}
@@ -857,7 +866,7 @@ export default function App() {
               void session.client?.request('saved.add', {
                 query: session.query.trim(),
                 filtersJson: serialiseFilters(session.filters),
-              }).catch(() => {});
+              }).catch(reportFailure('save this search'));
             }}
           />
         ) : section === 'chat' || section === 'messages' ? (

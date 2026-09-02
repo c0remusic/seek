@@ -24,7 +24,7 @@
  * needs nothing.
  */
 
-import type { Sidecar, SidecarHandlers } from './mockSidecar.ts';
+import type { SearchScope, Sidecar, SidecarHandlers } from './mockSidecar.ts';
 import type { WireSearchClosedData, WireSearchResultData } from './adapt.ts';
 
 export interface SidecarEndpoint {
@@ -398,7 +398,7 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
       /* Replay rate is a fixture concept. The network sets its own pace. */
     },
 
-    start(query: string, next: SidecarHandlers) {
+    start(query: string, next: SidecarHandlers, scope?: SearchScope) {
       handlers = next;
       running = true;
       searchId = null;
@@ -410,9 +410,9 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
       // keys, so this object must match the struct exactly.
       void request<{ searchId: number }>('search.start', {
         query,
-        mode: 'global',
-        room: null,
-        users: [],
+        mode: scope?.mode ?? 'global',
+        room: scope?.room ?? null,
+        users: scope?.users ?? [],
         resultCap: null,
         timeoutSeconds: null,
       })

@@ -24,8 +24,23 @@ export interface SidecarHandlers {
   onStarted?(query: string): void;
 }
 
+/**
+ * Where a search looks. The engine supports all of these already
+ * (SearchStartParams in the schema); only the client used to hardcode
+ * 'global'. `room` is required by the sidecar when mode is 'rooms', and
+ * `users` must be non-empty when mode is 'user' — the UI enforces both
+ * before a scope can be committed.
+ */
+export interface SearchScope {
+  mode: 'global' | 'buddies' | 'rooms' | 'user';
+  room: string | null;
+  users: string[];
+}
+
+export const GLOBAL_SCOPE: SearchScope = { mode: 'global', room: null, users: [] };
+
 export interface Sidecar {
-  start(query: string, handlers: SidecarHandlers): void;
+  start(query: string, handlers: SidecarHandlers, scope?: SearchScope): void;
   stop(): void;
   /** Replay faster or slower. 1 = as recorded. */
   setRate(rate: number): void;
