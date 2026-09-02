@@ -45,6 +45,11 @@ import numpy as np
 
 log = logging.getLogger("seek.spectral")
 
+# A console-subsystem child pops a visible console window on Windows when its
+# parent has none (the Tauri shell starts the sidecar with CREATE_NO_WINDOW).
+# The flag only exists on Windows; 0 is "no flags" everywhere else.
+_SUBPROCESS_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 FFT_SIZE = 8192
 MAX_WINDOWS = 96          # averaged across the file; plenty for a stable curve
 SPECTRUM_POINTS = 256     # what we ship to the frontend, log-spaced
@@ -131,6 +136,7 @@ def _decode_ffmpeg(path):
          "-show_entries", "stream=sample_rate,channels,duration",
          "-of", "default=noprint_wrappers=1:nokey=1", path],
         capture_output=True, text=True, timeout=30,
+        creationflags=_SUBPROCESS_FLAGS,
     )
     if probe.returncode != 0:
         raise AnalysisError(f"ffprobe failed: {probe.stderr.strip()[:200]}")
@@ -146,6 +152,7 @@ def _decode_ffmpeg(path):
         ["ffmpeg", "-v", "error", "-i", path, "-ac", "1",
          "-f", "f32le", "-acodec", "pcm_f32le", "-"],
         capture_output=True, timeout=300,
+        creationflags=_SUBPROCESS_FLAGS,
     )
     if result.returncode != 0 or not result.stdout:
         raise AnalysisError(f"ffmpeg failed: {result.stderr.decode()[:200]}")

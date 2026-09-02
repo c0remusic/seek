@@ -654,6 +654,11 @@ FINGERPRINT_SECONDS = 120
 # no hard limit, which is not the same as not having one.
 _acoustid_gate = Gate(1.05)
 
+# A console-subsystem child pops a visible console window on Windows when its
+# parent has none (the Tauri shell starts the sidecar with CREATE_NO_WINDOW).
+# The flag only exists on Windows; 0 is "no flags" everywhere else.
+_SUBPROCESS_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 # chromaprint's CLI. Looked up rather than assumed on PATH: the sidecar runs
 # from a GUI-launched app whose PATH is not a login shell's, and Homebrew's
 # prefix differs between Apple silicon and Intel.
@@ -685,7 +690,8 @@ def _bundled_fpcalc():
     """
     if not getattr(sys, "frozen", False):
         return None
-    beside = os.path.join(os.path.dirname(sys.executable), "fpcalc")
+    name = "fpcalc.exe" if sys.platform == "win32" else "fpcalc"
+    beside = os.path.join(os.path.dirname(sys.executable), name)
     if os.path.isfile(beside) and os.access(beside, os.X_OK):
         return beside
     return None
@@ -728,6 +734,7 @@ def fingerprint(path, seconds=FINGERPRINT_SECONDS, binary=None):
         proc = subprocess.run(
             [binary, "-json", "-length", str(int(seconds)), path],
             capture_output=True, timeout=90, check=False,
+            creationflags=_SUBPROCESS_FLAGS,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise DiscoverError(f"fpcalc failed: {error}") from error

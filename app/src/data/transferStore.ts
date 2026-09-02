@@ -28,6 +28,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 
 export type TransferState =
   | 'queued' | 'getting_status' | 'transferring' | 'paused' | 'cancelled'
@@ -278,6 +279,8 @@ export function useTransfers(
     setUploadGroups(group(uploads, 0, now));
   }, []);
 
+  const gen = useSidecarGeneration(client);
+
   useEffect(() => {
     if (!client) return;
 
@@ -306,9 +309,20 @@ export function useTransfers(
 
     // Snapshot on connect, so downloads already running in a restarted sidecar
     // appear instead of the list looking empty until something changes.
+    const requestedAt = Date.now();
     void client.request<{ transfers: Transfer[] }>('transfer.list')
       .then((r) => {
         const at = Date.now();
+        /* Reconcile, not just merge. This store accretes into a ref, so a
+         * transfer removed while the socket was down would linger forever if
+         * the snapshot only added. Absent from the snapshot AND untouched by
+         * any event since we asked means it no longer exists engine-side; the
+         * seenAt guard keeps a transfer added between request and reply from
+         * being swept. Harmless on the first fetch — the map is empty. */
+        const listed = new Set((r.transfers ?? []).map((t) => t.id));
+        for (const [id, t] of byId.current) {
+          if (!listed.has(id) && (t.seenAt ?? 0) < requestedAt) byId.current.delete(id);
+        }
         for (const t of r.transfers ?? []) byId.current.set(t.id, { ...t, seenAt: at });
         publish();
       })
@@ -366,7 +380,9 @@ export function useTransfers(
       window.clearInterval(timer);
       window.clearInterval(sweep);
     };
-  }, [client, publish]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, publish, gen]);
 
   const cmd = useCallback((name: string, params: Record<string, unknown>) => {
     void client?.request(name, params).catch((e: Error) => setError(e.message));

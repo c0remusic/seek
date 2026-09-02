@@ -62,21 +62,26 @@ input { font: inherit; color: inherit; }
 
 /* ---------------------------------------------------- native window shell */
 /*
- * Under Tauri the window is a real NSVisualEffectView with the `sidebar`
- * material. CSS must then get out of the way: anything opaque here would sit on
- * top of the native vibrancy and cancel it. `backdrop-filter` also cannot help —
- * it blurs page content, never the desktop behind the window.
+ * Under Tauri on macOS the window is a real NSVisualEffectView with the
+ * `sidebar` material. CSS must then get out of the way: anything opaque here
+ * would sit on top of the native vibrancy and cancel it. `backdrop-filter`
+ * also cannot help — it blurs page content, never the desktop behind the
+ * window.
+ *
+ * Gated on the platform, not just the shell: a Tauri window on Windows is
+ * opaque with no material behind it, so going transparent there means a black
+ * hole. Windows keeps the browser-fallback materials below.
  */
-:root[data-shell='tauri'] body { background: transparent; }
-:root[data-shell='tauri'] .app { background: transparent; }
-:root[data-shell='tauri'] .sidebar {
+:root[data-shell='tauri'][data-platform='mac'] body { background: transparent; }
+:root[data-shell='tauri'][data-platform='mac'] .app { background: transparent; }
+:root[data-shell='tauri'][data-platform='mac'] .sidebar {
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 /* The content pane stays opaque: stacking a second translucent surface on the
  * window material is the "never stack two light translucent surfaces" rule. */
-:root[data-shell='tauri'] .pane { background: var(--bg-content); }
+:root[data-shell='tauri'][data-platform='mac'] .pane { background: var(--bg-content); }
 
 /* ------------------------------------------------------------ the shell */
 
@@ -100,9 +105,17 @@ input { font: inherit; color: inherit; }
   border-right: 0.5px solid var(--separator);
   display: flex;
   flex-direction: column;
+}
+/*
+ * Only the mac window overlays its controls (the traffic lights) on the page
+ * and drags by its chrome; everywhere else the titlebar is native and sits
+ * outside the client area. The drag region must be gated too: WKWebView never
+ * implemented `-webkit-app-region` (mac dragging comes from the transparent
+ * titlebar), but WebView2 honours it — left unscoped, the whole sidebar would
+ * drag the window on Windows and swallow clicks on its children.
+ */
+:root[data-platform='mac'] .sidebar {
   padding-top: var(--sp-6);
-  /* Room for the traffic lights when this runs in a Tauri window with a
-   * transparent titlebar. */
   -webkit-app-region: drag;
 }
 
@@ -164,6 +177,16 @@ input { font: inherit; color: inherit; }
   gap: var(--sp-1);
 }
 .sidebar__conn { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+/* The status row's one verb ("Restart engine"). A text button, not a .btn:
+   the footer whispers, and a raised control there would out-shout the thing
+   it is trying to fix. */
+.sidebar__conn-action {
+  align-self: flex-start;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tr-micro);
+  color: var(--accent);
+  cursor: default;
+}
 
 /* The live rate. Two fixed-width columns rather than a flex row: the numbers
    change every second, and letting them size themselves means the up arrow
@@ -218,8 +241,10 @@ input { font: inherit; color: inherit; }
   backdrop-filter: blur(var(--blur-chrome)) saturate(180%);
   -webkit-backdrop-filter: blur(var(--blur-chrome)) saturate(180%);
   padding: var(--sp-4) var(--sp-5) var(--sp-3);
-  -webkit-app-region: drag;
 }
+/* Same platform gate as the sidebar's: a live drag region on WebView2 would
+ * swallow clicks; on mac this has always been inert documentation. */
+:root[data-platform='mac'] .header { -webkit-app-region: drag; }
 .header > * { -webkit-app-region: no-drag; }
 
 /*

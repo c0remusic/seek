@@ -25,6 +25,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import type { PathFacts } from '../domain/folders.ts';
 import { readableError } from '../domain/folders.ts';
 
@@ -101,6 +102,8 @@ export function useEngine(client: SidecarClient | null): EngineSession {
   const [publicAddress, setPublicAddress] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const gen = useSidecarGeneration(client);
+
   useEffect(() => {
     if (!client) {
       // Offline mode replays a fixture and has no engine behind it. Drop any
@@ -126,7 +129,9 @@ export function useEngine(client: SidecarClient | null): EngineSession {
     void client.request<ShareState>('shares.get').then(setShares).catch(() => {});
 
     return () => { offShares(); offConn(); };
-  }, [client]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, gen]);
 
   const save = useCallback(async (patch: EngineSettingsPatch) => {
     if (!client) throw new Error('Not connected to the engine.');

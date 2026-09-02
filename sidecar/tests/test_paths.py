@@ -13,10 +13,22 @@
 
 import os
 import stat
+import sys
 
 import pytest
 
 from seek_sidecar.core_host import CoreHost, CommandError
+
+# chmod cannot make a directory unwritable on Windows: os.chmod there only
+# toggles FILE_ATTRIBUTE_READONLY, which directories ignore for the purpose of
+# creating entries inside them. Unwritable folders still exist on Windows —
+# ACL-locked, network mounts — and the write-probe refusal handles them; it is
+# the tests' way of MANUFACTURING one that does not exist there. The probe
+# technique itself stays exercised on every OS by the writable-case tests.
+needs_chmod_to_unwrite = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod cannot make a directory unwritable on Windows",
+)
 
 
 @pytest.fixture
@@ -139,6 +151,7 @@ def test_a_file_is_not_a_directory(host, tmp_path):
     assert check["writable"] is False
 
 
+@needs_chmod_to_unwrite
 def test_writability_is_tested_by_writing_not_by_reading_the_mode(host, tmp_path):
     """os.access() answers from the permission bits, and this is the case that
     separates the two: chmod 500 leaves the directory readable and executable
@@ -215,6 +228,7 @@ def test_ensure_folder_needs_a_path(host):
         assert error.value.code == "bad_request"
 
 
+@needs_chmod_to_unwrite
 def test_ensure_folder_reports_a_permission_failure_rather_than_raising_oserror(
     host, tmp_path,
 ):
@@ -257,6 +271,7 @@ def test_a_file_given_as_a_download_folder_is_refused(host, tmp_path):
     assert "not a folder" in str(error.value)
 
 
+@needs_chmod_to_unwrite
 def test_an_unwritable_download_folder_is_refused(host, tmp_path):
     locked = tmp_path / "read-only"
     locked.mkdir()

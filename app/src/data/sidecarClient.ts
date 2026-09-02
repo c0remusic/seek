@@ -49,6 +49,20 @@ export interface SidecarClient extends Sidecar {
   onPhase(fn: (phase: ConnectionPhase) => void): () => void;
   readonly phase: ConnectionPhase;
   /**
+   * Bumped after every successful RE-handshake — the first hello of a
+   * connection that is not the client's first. Stores key their snapshot
+   * fetch on it, because events missed while the socket was down are simply
+   * gone: the only honest recovery is to ask for the state again.
+   *
+   * Deliberately NOT bumped on the first hello: the mount-time fetches are
+   * already riding `whenOpen`, and doubling every read on a first launch is
+   * exactly the queue pressure the timeout comments above exist to warn
+   * about.
+   */
+  readonly generation: number;
+  /** Subscribe to generation bumps. Returns an unsubscribe function. */
+  onGeneration(fn: (generation: number) => void): () => void;
+  /**
    * Connect, or revive a client that was closed. Idempotent.
    *
    * This exists because React StrictMode mounts, unmounts and remounts every
@@ -135,6 +149,13 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
   const listeners = new Map<string, Set<(data: unknown) => void>>();
   const phaseListeners = new Set<(p: ConnectionPhase) => void>();
 
+  /* Reconnect counter. `helloSucceededOnce` survives close()/open() on
+   * purpose: a StrictMode revive is still a gap during which events were
+   * missed, so its next hello must count as a reconnect. */
+  let generation = 0;
+  let helloSucceededOnce = false;
+  const generationListeners = new Set<(g: number) => void>();
+
   /* ---- the active search, if any ---- */
   let searchId: number | null = null;
   let handlers: SidecarHandlers | null = null;
@@ -204,6 +225,13 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
          * empty state offered to explain how to sign in — while searches were
          * running perfectly well against the live network. */
         if (result?.connection) emit('connection.state', result.connection);
+        /* After the replay, so a store refetching on the bump can never
+         * observe a pre-replay login state. */
+        if (helloSucceededOnce) {
+          generation += 1;
+          for (const fn of generationListeners) fn(generation);
+        }
+        helloSucceededOnce = true;
       }).catch(() => {
         /* A failed hello is surfaced through the phase, not thrown at the UI. */
       });
@@ -429,6 +457,18 @@ export function createSidecarClient(endpoint: SidecarEndpoint): SidecarClient {
 
     onPhase,
 
+    get generation() {
+      return generation;
+    },
+
+    // Unlike onPhase there is no call-on-subscribe: useSyncExternalStore
+    // reads the snapshot itself, and a listener fired during subscribe would
+    // be a render-phase update.
+    onGeneration(fn) {
+      generationListeners.add(fn);
+      return () => generationListeners.delete(fn);
+    },
+
     open() {
       if (!closedByUs && (ws || reconnectTimer)) return;
       closedByUs = false;
@@ -554,4 +594,29 @@ export async function sidecarStartupError(): Promise<string | null> {
   } catch (e) {
     return `The app could not reach its own backend: ${(e as Error).message}`;
   }
+}
+
+/**
+ * Ask the shell to kill and relaunch the engine. Returns an error message, or
+ * null on success. The client swap does not ride this return value — the
+ * shell announces the new endpoint through `sidecar-ready`, the same door the
+ * automatic restart uses, so both paths converge on one code path.
+ */
+export async function requestSidecarRestart(): Promise<string | null> {
+  if (!isTauri()) return 'not running inside the app shell';
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('restart_sidecar');
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
+
+/**
+ * Whether two endpoints name the same sidecar. A restart mints a new port AND
+ * a new token, so all three fields carry identity.
+ */
+export function sameEndpoint(a: SidecarEndpoint, b: SidecarEndpoint): boolean {
+  return a.host === b.host && a.port === b.port && a.token === b.token;
 }

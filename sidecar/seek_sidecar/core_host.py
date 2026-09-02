@@ -3209,7 +3209,11 @@ class CoreHost:
 
     def _cmd_fs_ensureFolder(self, params):
         resolved = self._resolve_path(params["path"])
-        if not resolved or resolved == os.sep:
+        # A path is its own dirname only at a filesystem root — "/", "C:\",
+        # "\\server\share". Comparing against os.sep caught only the unix
+        # spelling: on Windows "/" resolves to the drive root and sailed
+        # straight through to makedirs.
+        if not resolved or os.path.dirname(resolved) == resolved:
             raise CommandError("bad_request", "a folder path is required")
         try:
             os.makedirs(resolved, exist_ok=True)

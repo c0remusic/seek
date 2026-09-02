@@ -171,7 +171,13 @@ class Bridge:
         # from the dev server. Exact match only, never a prefix or a wildcard.
         origin = headers.get("Origin")
         if origin is not None and origin not in self._allowed_origins:
-            log.warning("rejected connection carrying an Origin header")
+            # The origin VALUE is logged on purpose: "an Origin header" alone
+            # cannot distinguish a webview whose origin the shell got wrong
+            # from a hostile browser page, and the first of those presents as
+            # a permanently offline app. An origin is not a secret; the token
+            # is, and stays out of every log line.
+            log.warning("rejected connection from origin %r (allowed: %s)",
+                        origin, sorted(self._allowed_origins) or "none")
             return connection.respond(403, "forbidden\n")
 
         presented = None

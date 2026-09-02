@@ -28,9 +28,32 @@ pub struct Endpoint {
     pub token: String,
 }
 
-/// Kept so the child can be killed on exit. `Drop` is not enough — the app can
-/// be terminated in ways that never unwind — so `RunEvent::Exit` kills it too.
-struct Sidecar(Mutex<Option<Child>>);
+/// Everything the shell knows about the engine, under one lock.
+///
+/// One mutex rather than three managed values, because the fields move
+/// together: a restart swaps the child AND the endpoint AND clears the error,
+/// and any reader seeing half of that would tell the frontend something
+/// untrue.
+struct Supervisor {
+    /// Kept so the child can be killed on exit. `Drop` is not enough — the
+    /// app can be terminated in ways that never unwind — so `RunEvent::Exit`
+    /// kills it too.
+    child: Option<Child>,
+    endpoint: Option<Endpoint>,
+    error: Option<String>,
+    /// True once the app is exiting: tells the watchdog that a dead child is
+    /// the kill we asked for, not a crash to restart.
+    shutting_down: bool,
+    /// Automatic restarts remaining before the shell gives up and leaves it
+    /// to the person. A successful auto-restart does NOT refill this — a
+    /// crash-looping engine burns its budget and stops; the manual restart
+    /// command refills it, because a person clicking is saying "try again".
+    auto_restarts_left: u32,
+}
+
+const AUTO_RESTARTS: u32 = 3;
+
+struct Sidecar(Mutex<Supervisor>);
 
 /// The frozen sidecar carried inside the bundle, if there is one.
 ///
@@ -45,10 +68,18 @@ fn bundled_sidecar() -> Option<std::path::PathBuf> {
     // Tauri copies the CONTENTS of a mapped resource directory, not the
     // directory itself, so the binary sits beside `_internal` rather than in a
     // nested folder of its own.
+    #[cfg(target_os = "macos")]
     let candidate = exe
         .parent()?
         .parent()?
         .join("Resources/sidecar/seek-sidecar");
+    // Windows (NSIS) and Linux lay resources out flat beside the executable,
+    // so the same mapping lands at <install dir>/sidecar/.
+    #[cfg(not(target_os = "macos"))]
+    let candidate = exe
+        .parent()?
+        .join("sidecar")
+        .join(format!("seek-sidecar{}", std::env::consts::EXE_SUFFIX));
     candidate.exists().then_some(candidate)
 }
 
@@ -62,22 +93,29 @@ fn frozen_command(binary: &std::path::Path) -> Command {
     cmd
 }
 
+/// The development virtualenv's interpreter, relative to the repo root. The
+/// `bin`/`Scripts` split is the one part of a venv's layout that differs
+/// per OS.
+#[cfg(not(windows))]
+const VENV_PYTHON: &str = "sidecar/.venv/bin/python";
+#[cfg(windows)]
+const VENV_PYTHON: &str = "sidecar/.venv/Scripts/python.exe";
+
 /// Development fallback: the repo's virtualenv. Not redistributable — the .app
 /// only works where that venv exists — but it is what `tauri dev` and a
 /// source checkout use, and it avoids re-freezing on every code change.
 fn sidecar_command(repo: &std::path::Path) -> Command {
-    let mut cmd = Command::new(repo.join("sidecar/.venv/bin/python"));
+    // `join_paths`, not a formatted string: PYTHONPATH's separator is `:` on
+    // unix and `;` on Windows.
+    let pythonpath =
+        std::env::join_paths([repo.join("upstream"), std::path::PathBuf::from(".")])
+            .expect("repo paths never contain the PYTHONPATH separator");
+    let mut cmd = Command::new(repo.join(VENV_PYTHON));
     cmd.arg("-m")
         .arg("seek_sidecar")
         .arg("--print-endpoint")
-        // The webview DOES send an Origin, contrary to the assumption the
-        // sidecar was written with — WKWebView reports `tauri://localhost` for
-        // a bundled app. Without this the sidecar 403s its own frontend and
-        // retries forever, which presents as a permanently offline app.
-        .arg("--allow-origin")
-        .arg("tauri://localhost")
         .current_dir(repo.join("sidecar"))
-        .env("PYTHONPATH", format!("{}:.", repo.join("upstream").display()));
+        .env("PYTHONPATH", pythonpath);
     common_args(&mut cmd);
     cmd
 }
@@ -87,22 +125,70 @@ fn sidecar_command(repo: &std::path::Path) -> Command {
 /// allowed origin, where a mismatch presents as a permanently offline app with
 /// no error anywhere.
 fn common_args(cmd: &mut Command) {
-    cmd
-        // The webview DOES send an Origin, contrary to the assumption the
-        // sidecar was written with — WKWebView reports `tauri://localhost` for
-        // a bundled app. Without this the sidecar 403s its own frontend and
-        // retries forever.
-        .arg("--allow-origin")
-        .arg("tauri://localhost")
+    // The webview DOES send an Origin, contrary to the assumption the sidecar
+    // was written with — and WHICH origin differs per engine: WKWebView
+    // reports `tauri://localhost` for a bundled app, while WebView2 serves the
+    // same app from `http://tauri.localhost`. Pass the wrong one and the
+    // sidecar 403s its own frontend and retries forever.
+    #[cfg(not(windows))]
+    const BUNDLED_ORIGIN: &str = "tauri://localhost";
+    #[cfg(windows)]
+    const BUNDLED_ORIGIN: &str = "http://tauri.localhost";
+
+    cmd.arg("--allow-origin")
+        .arg(BUNDLED_ORIGIN)
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stderr(sidecar_stderr());
+
+    // The frozen sidecar is a console-subsystem binary — deliberately, since
+    // stdout carries the endpoint handshake — and Windows opens a visible
+    // console window for one unless the parent says otherwise.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 
     // `tauri dev` loads the page from the Vite server, so the origin is that
     // server's, not tauri://. Debug builds only — a release build must never
     // trust a localhost web origin.
     #[cfg(debug_assertions)]
     cmd.arg("--allow-origin").arg("http://localhost:5273");
+}
+
+/// Where the sidecar's stderr goes.
+///
+/// On mac and Linux: inherit. A bundled app's stderr lands in the system log,
+/// which is how every sidecar problem so far was actually diagnosed
+/// (__main__.py documents the same reasoning from the Python side).
+///
+/// On Windows the parent is a GUI-subsystem process with no console, so the
+/// inherited handle is invalid and everything written to it vanishes — the
+/// one platform where a broken engine leaves no trace is the one being
+/// brought up. A file in the sidecar's own data folder keeps parity.
+/// Truncated per launch: it is this run's stderr, not a history — seek.log
+/// is the history.
+#[cfg(not(windows))]
+fn sidecar_stderr() -> Stdio {
+    Stdio::inherit()
+}
+#[cfg(windows)]
+fn sidecar_stderr() -> Stdio {
+    let dir = match std::env::var_os("APPDATA") {
+        // Matches the sidecar's own DEFAULT_APP_SUPPORT (%APPDATA%\Seek), so
+        // both logs end up side by side.
+        Some(appdata) => std::path::Path::new(&appdata).join("Seek").join("data"),
+        None => return Stdio::null(),
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return Stdio::null();
+    }
+    match std::fs::File::create(dir.join("sidecar-stderr.log")) {
+        Ok(file) => Stdio::from(file),
+        Err(_) => Stdio::null(),
+    }
 }
 
 /// Walk up from the executable to find the repo. In `tauri dev` the binary sits
@@ -113,7 +199,7 @@ fn find_repo() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let mut dir = exe.parent()?.to_path_buf();
     for _ in 0..8 {
-        if dir.join("sidecar/.venv/bin/python").exists() && dir.join("upstream").is_dir() {
+        if dir.join(VENV_PYTHON).exists() && dir.join("upstream").is_dir() {
             return Some(dir);
         }
         dir = dir.parent()?.to_path_buf();
@@ -162,14 +248,31 @@ fn spawn_sidecar() -> Result<(Child, Endpoint), String> {
     let endpoint: Endpoint = serde_json::from_str(line.trim())
         .map_err(|e| format!("could not parse the sidecar endpoint {line:?}: {e}"))?;
 
+    // Keep draining stdout for the sidecar's lifetime. Nothing is supposed to
+    // write there after the endpoint line (logfile.py forbids stdout
+    // handlers), but a stray upstream print into a pipe nobody reads would,
+    // at the pipe buffer's 64 KB, block the engine mid-write with no error
+    // anywhere. Reading and echoing costs a parked thread; a wedged engine
+    // costs a bug nobody can reproduce.
+    std::thread::spawn(move || {
+        let mut stray = String::new();
+        loop {
+            stray.clear();
+            match reader.read_line(&mut stray) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => eprintln!("seek-sidecar[stdout]: {}", stray.trim_end()),
+            }
+        }
+    });
+
     Ok((child, endpoint))
 }
 
 /// The frontend asks for this on mount. Returning `Ok(None)` means "no sidecar,
 /// stay on recorded data" — a normal state, not an error.
 #[tauri::command]
-fn sidecar_endpoint(state: tauri::State<'_, Option<Endpoint>>) -> Option<Endpoint> {
-    let value = state.inner().clone();
+fn sidecar_endpoint(state: tauri::State<'_, Sidecar>) -> Option<Endpoint> {
+    let value = state.0.lock().ok().and_then(|sup| sup.endpoint.clone());
     eprintln!("seek: sidecar_endpoint invoked -> {}",
               if value.is_some() { "Some" } else { "None" });
     value
@@ -178,8 +281,99 @@ fn sidecar_endpoint(state: tauri::State<'_, Option<Endpoint>>) -> Option<Endpoin
 /// Surfaced in the UI when the sidecar could not be started, so the failure is
 /// explained rather than appearing as a silently offline app.
 #[tauri::command]
-fn sidecar_error(state: tauri::State<'_, Option<String>>) -> Option<String> {
-    state.inner().clone()
+fn sidecar_error(state: tauri::State<'_, Sidecar>) -> Option<String> {
+    state.0.lock().ok().and_then(|sup| sup.error.clone())
+}
+
+/// Kill whatever is running, start a fresh sidecar, and tell the page.
+///
+/// Every restart mints a NEW port and token, so the page has to be re-told
+/// both ways: the window global for any future page load, the `sidecar-ready`
+/// event for the scripts already running. The caller holds the supervisor
+/// lock; `spawn_sidecar`'s blocking endpoint handshake therefore runs under
+/// it, which is accepted — the only contenders are the 1 s watchdog poll and
+/// the Exit kill, and delaying either by an engine boot is harmless.
+fn do_restart(app: &tauri::AppHandle, sup: &mut Supervisor) -> Result<Endpoint, String> {
+    if let Some(child) = sup.child.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    sup.child = None;
+    match spawn_sidecar() {
+        Ok((child, endpoint)) => {
+            sup.child = Some(child);
+            sup.endpoint = Some(endpoint.clone());
+            sup.error = None;
+            if let Ok(json) = serde_json::to_string(&endpoint) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.eval(&format!("window.__SEEK_SIDECAR__={json};"));
+                }
+            }
+            let _ = app.emit("sidecar-ready", endpoint.clone());
+            Ok(endpoint)
+        }
+        Err(message) => {
+            sup.endpoint = None;
+            sup.error = Some(message.clone());
+            Err(message)
+        }
+    }
+}
+
+/// The sidebar's "Restart engine" button.
+#[tauri::command]
+fn restart_sidecar(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Sidecar>,
+) -> Result<Endpoint, String> {
+    let mut sup = state.0.lock().map_err(|_| "engine state poisoned".to_string())?;
+    sup.auto_restarts_left = AUTO_RESTARTS;
+    do_restart(&app, &mut sup)
+}
+
+/// Notice the sidecar dying, and bring it back.
+///
+/// Polls `try_wait` rather than blocking in `wait()`: a blocking wait would
+/// have to own the `Child`, and the Exit handler needs the same child to kill
+/// — polling under short lock holds sidesteps the ownership fight on every
+/// platform. One second of detection latency is nothing against the
+/// frontend's own 8 s reconnect cap.
+fn spawn_watchdog(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let state = app.state::<Sidecar>();
+        let backoff;
+        {
+            let Ok(mut sup) = state.0.lock() else { return };
+            if sup.shutting_down {
+                return;
+            }
+            match sup.child.as_mut().map(|c| c.try_wait()) {
+                // Alive, or nothing to watch (startup failed; a manual
+                // restart may install a child later) — keep looping.
+                Some(Ok(None)) | None => continue,
+                Some(Err(_)) => continue,
+                Some(Ok(Some(status))) => {
+                    sup.child = None;
+                    eprintln!("seek: sidecar exited ({status})");
+                    let _ = app.emit("sidecar-died", status.code());
+                    if sup.auto_restarts_left == 0 {
+                        sup.error =
+                            Some("the engine keeps crashing; restart it from the sidebar".into());
+                        continue; // keep watching: a manual restart re-arms us
+                    }
+                    sup.auto_restarts_left -= 1;
+                    backoff = 1u64 << (AUTO_RESTARTS - 1 - sup.auto_restarts_left); // 1, 2, 4 s
+                }
+            }
+        } // NEVER sleep holding the lock: Exit needs it to kill.
+        std::thread::sleep(std::time::Duration::from_secs(backoff));
+        let Ok(mut sup) = state.0.lock() else { return };
+        if sup.shutting_down {
+            return;
+        }
+        let _ = do_restart(&app, &mut sup);
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -192,38 +386,46 @@ pub fn run() {
         }
     };
 
-    tauri::Builder::default()
-        // ⌘W has to reach the WEBVIEW, and by default it never does.
-        //
-        // Tauri installs the standard macOS menu, whose Window → Close owns
-        // ⌘W — so the key is swallowed by AppKit before any JavaScript sees it,
-        // and pressing it closed the whole app while the frontend's handler sat
-        // there doing nothing. No amount of `preventDefault` can win that; the
-        // menu item itself has to go.
-        //
-        // So: the default menu, minus that one item. Everything else is kept
-        // deliberately — removing the menu wholesale would take Edit → Copy and
-        // Paste with it, and a Soulseek client where ⌘C does nothing is a far
-        // worse bug than the one being fixed.
-        //
-        // The frontend then decides what ⌘W means: close the tab, or, when
-        // there is only one left, let the window close — which is Safari's
-        // behaviour and the one the muscle memory expects.
-        .menu(|handle| {
-            let menu = tauri::menu::Menu::default(handle)?;
-            // Found by ID and POSITION, never by title. Tauri builds the Window
-            // submenu as [minimize, maximize, separator, close_window], so the
-            // close item is its last entry — and matching on the string "Close"
-            // would quietly stop working for anyone running macOS in another
-            // language, which is the kind of bug nobody here would ever see.
-            if let Some(item) = menu.get(tauri::menu::WINDOW_SUBMENU_ID) {
-                if let Some(window_menu) = item.as_submenu() {
-                    let last = window_menu.items()?.len().saturating_sub(1);
-                    window_menu.remove_at(last)?;
-                }
+    let builder = tauri::Builder::default();
+
+    // ⌘W has to reach the WEBVIEW, and by default it never does.
+    //
+    // Tauri installs the standard macOS menu, whose Window → Close owns
+    // ⌘W — so the key is swallowed by AppKit before any JavaScript sees it,
+    // and pressing it closed the whole app while the frontend's handler sat
+    // there doing nothing. No amount of `preventDefault` can win that; the
+    // menu item itself has to go.
+    //
+    // So: the default menu, minus that one item. Everything else is kept
+    // deliberately — removing the menu wholesale would take Edit → Copy and
+    // Paste with it, and a Soulseek client where ⌘C does nothing is a far
+    // worse bug than the one being fixed.
+    //
+    // The frontend then decides what ⌘W means: close the tab, or, when
+    // there is only one left, let the window close — which is Safari's
+    // behaviour and the one the muscle memory expects.
+    //
+    // macOS only in every sense: the menu being pruned is the one AppKit
+    // installs on its own. On Windows there is no default menu, so calling
+    // `.menu()` there would ADD a visible menu bar instead of trimming one.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(|handle| {
+        let menu = tauri::menu::Menu::default(handle)?;
+        // Found by ID and POSITION, never by title. Tauri builds the Window
+        // submenu as [minimize, maximize, separator, close_window], so the
+        // close item is its last entry — and matching on the string "Close"
+        // would quietly stop working for anyone running macOS in another
+        // language, which is the kind of bug nobody here would ever see.
+        if let Some(item) = menu.get(tauri::menu::WINDOW_SUBMENU_ID) {
+            if let Some(window_menu) = item.as_submenu() {
+                let last = window_menu.items()?.len().saturating_sub(1);
+                window_menu.remove_at(last)?;
             }
-            Ok(menu)
-        })
+        }
+        Ok(menu)
+    });
+
+    builder
         // Native notifications for finished and failed downloads. macOS only
         // shows these when the app is in the background, which is exactly when
         // they are wanted.
@@ -260,10 +462,18 @@ pub fn run() {
         // diagnostics awaits the engine before writing. Both problems belong to
         // the webview; this plugin writes from Rust and has neither.
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(endpoint.clone())
-        .manage(error)
-        .manage(Sidecar(Mutex::new(child)))
-        .invoke_handler(tauri::generate_handler![sidecar_endpoint, sidecar_error])
+        .manage(Sidecar(Mutex::new(Supervisor {
+            child,
+            endpoint: endpoint.clone(),
+            error,
+            shutting_down: false,
+            auto_restarts_left: AUTO_RESTARTS,
+        })))
+        .invoke_handler(tauri::generate_handler![
+            sidecar_endpoint,
+            sidecar_error,
+            restart_sidecar
+        ])
         .setup(move |app| {
             // Inject the endpoint straight into the page.
             //
@@ -284,6 +494,9 @@ pub fn run() {
                 }
                 let _ = app.emit("sidecar-ready", endpoint);
             }
+            // From here on the engine's death is noticed, reported to the
+            // page, and — within a small budget — repaired.
+            spawn_watchdog(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -291,11 +504,15 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<Sidecar>() {
-                    if let Ok(mut guard) = state.0.lock() {
-                        if let Some(child) = guard.as_mut() {
+                    if let Ok(mut sup) = state.0.lock() {
+                        // Before the kill, so the watchdog reads the death as
+                        // deliberate rather than as a crash to repair.
+                        sup.shutting_down = true;
+                        if let Some(child) = sup.child.as_mut() {
                             let _ = child.kill();
                             let _ = child.wait();
                         }
+                        sup.child = None;
                     }
                 }
             }
