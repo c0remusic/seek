@@ -27,6 +27,8 @@ import type { Density } from './ViewMenu.tsx';
 import type { AnalysisSession } from '../data/analysisStore.ts';
 import type { SidecarClient } from '../data/sidecarClient.ts';
 import { ASSESSMENT_LABEL, ASSESSMENT_TONE, explain } from '../data/analysisStore.ts';
+import { identityTone } from '../data/identifyStore.ts';
+import type { IdentifySession } from '../data/identifyStore.ts';
 import { Spectrum } from './Spectrum.tsx';
 import { MetadataPanel, MetadataTrigger, useMetadata } from './MetadataPanel.tsx';
 import { PreviewButton } from './Preview.tsx';
@@ -101,15 +103,71 @@ function Verdict({
 }
 
 /**
+ * The acoustic identity check — the Dig Bar's fingerprint path (fpcalc +
+ * AcoustID) pointed at a finished download. A verdict the spectral check
+ * cannot give: Verify asks "was this ever lossy?"; this asks "is it even the
+ * track the filename claims?". A mislabelled file sounds fine and reads fine,
+ * and only the audio itself can contradict the name.
+ */
+function IdentifyChip({
+  id, name, identify,
+}: {
+  id: string;
+  /** The display name the verdict is judged against. */
+  name: string;
+  identify: IdentifySession;
+}) {
+  const entry = identify.byTransfer.get(id);
+
+  if (!entry) {
+    return (
+      <button
+        type="button"
+        className="verify pressable"
+        onPointerDown={() => identify.identifyTransfer(id)}
+        title="Fingerprint the audio and ask AcoustID which recording it actually is — the check that catches a mislabelled file."
+      >
+        Identify
+      </button>
+    );
+  }
+  if (entry.state === 'running') return <span className="verify verify--busy">Listening…</span>;
+  if (entry.state === 'failed') {
+    const label = entry.needs === 'acoustidApiKey' ? 'Needs AcoustID key'
+      : entry.needs === 'fpcalc' ? 'Needs fpcalc'
+        : 'Could not identify';
+    return <span className="verify verify--failed" title={entry.reason}>{label}</span>;
+  }
+
+  const r = entry.result!;
+  const tone = identityTone(r, name);
+  // `score` is AcoustID's confidence the FINGERPRINT matched — never a
+  // judgement that the metadata is right. Tooltip decoration only.
+  const heard = r.matched
+    ? `AcoustID heard: ${r.artist} — ${r.title}`
+      + `${r.album ? ` (${r.album})` : ''} · fingerprint match ${Math.round(r.score * 100)}%`
+    : 'AcoustID does not know this recording. Ordinary for anything underground — not a fault.';
+  const label = tone === 'good' ? 'Confirmed'
+    : tone === 'warn' ? `Heard: ${r.title || 'something else'}`
+      : 'Not recognised';
+  return (
+    <span className="verify verify--done" data-tone={tone} title={heard}>
+      {label}
+    </span>
+  );
+}
+
+/**
  * One file, and the detail rows it can open. Emits SIBLING <li>s rather than
  * nesting: the file row is a grid, and a panel placed inside one of its cells
  * is trapped in that column however wide the content wants to be.
  */
 function FileRow({
-  t, analysis, client, spectrumOpen, onToggleSpectrum, preview,
+  t, analysis, identify, client, spectrumOpen, onToggleSpectrum, preview,
 }: {
   t: TransferGroup['transfers'][number];
   analysis: AnalysisSession;
+  identify: IdentifySession;
   client: SidecarClient | null;
   spectrumOpen: boolean;
   onToggleSpectrum(): void;
@@ -172,6 +230,11 @@ function FileRow({
               open={spectrumOpen}
               onToggle={onToggleSpectrum}
             />
+          )}
+        </span>
+        <span className="dl__verify">
+          {t.state === 'finished' && (
+            <IdentifyChip id={t.id} name={fileName(t.path)} identify={identify} />
           )}
         </span>
       </li>
@@ -330,11 +393,12 @@ function TableRow({
 }
 
 function Group({
-  g, session, analysis, client, preview, density, filter, discovery,
+  g, session, analysis, identify, client, preview, density, filter, discovery,
 }: {
   g: TransferGroup;
   session: TransferSession;
   analysis: AnalysisSession;
+  identify: IdentifySession;
   client: SidecarClient | null;
   preview: PreviewSession;
   density: Density;
@@ -395,6 +459,7 @@ function Group({
           key={t.id}
           t={t}
           analysis={analysis}
+          identify={identify}
           client={client}
           spectrumOpen={spectrumFor === t.id}
           onToggleSpectrum={() => setSpectrumFor((cur) => (cur === t.id ? null : t.id))}
@@ -585,7 +650,7 @@ function TableHead({ filter }: { filter: 'active' | 'finished' | 'failed' }) {
 }
 
 export function DownloadsView({
-  session, signedIn, filter, analysis, client, preview, density, onDensity,
+  session, signedIn, filter, analysis, identify, client, preview, density, onDensity,
   discovery,
 }: {
   session: TransferSession;
@@ -593,6 +658,7 @@ export function DownloadsView({
   /** Which section this is rendering — the same list, three lenses. */
   filter: 'active' | 'finished' | 'failed';
   analysis: AnalysisSession;
+  identify: IdentifySession;
   client: SidecarClient | null;
   preview: PreviewSession;
   density: Density;
@@ -768,6 +834,7 @@ export function DownloadsView({
               g={g}
               session={session}
               analysis={analysis}
+              identify={identify}
               client={client}
               preview={preview}
               density={density}
