@@ -11,8 +11,11 @@
  * control teaches people to ignore that corner of the screen.
  */
 
+import { useState } from 'react';
 import type { Filters } from '../domain/types.ts';
 import { filtersActive } from '../domain/types.ts';
+import type { FilterPreset } from '../data/filterPrefs.ts';
+import { deletePreset, loadPresets, savePreset } from '../data/filterPrefs.ts';
 import { Chip, NumberField, Toggle } from './controls.tsx';
 import { IconClose } from '../icons/index.tsx';
 
@@ -27,6 +30,9 @@ export function FilterBar({
   availableFormats: string[];
 }) {
   const active = filtersActive(filters);
+  const [presets, setPresets] = useState<FilterPreset[]>(loadPresets);
+  /** The inline name field, open while non-null. No window.prompt in a WebView. */
+  const [naming, setNaming] = useState<string | null>(null);
 
   const patch = (p: Partial<Filters>) => onChange({ ...filters, ...p });
 
@@ -165,6 +171,64 @@ export function FilterBar({
         <button type="button" className="preset pressable" onPointerDown={applyPreset}>
           {PRESET_LOSSLESS}
         </button>
+
+        {/* User presets apply WHOLESALE — the saved set replaces the current
+          * one, formats included — where "my usual" above deliberately keeps
+          * PATCHING on top of whatever is set. A preset is "the filters I saved
+          * that day"; anything less than exact restoration makes saving one
+          * pointless. */}
+        {presets.map((p) => (
+          <span key={p.name} className="preset__wrap">
+            <button
+              type="button"
+              className="preset pressable"
+              onPointerDown={() => onChange(p.filters)}
+            >
+              {p.name}
+            </button>
+            <button
+              type="button"
+              className="tabs__close"
+              aria-label={`Delete preset ${p.name}`}
+              onClick={() => setPresets(deletePreset(p.name))}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+
+        {active && naming === null && (
+          <button
+            type="button"
+            className="preset pressable"
+            onPointerDown={() => setNaming('')}
+          >
+            Save preset…
+          </button>
+        )}
+        {naming !== null && (
+          <form
+            className="preset__form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = naming.trim();
+              if (!name) return;
+              setPresets(savePreset(name, filters));
+              setNaming(null);
+            }}
+          >
+            <input
+              className="filters__text"
+              value={naming}
+              placeholder="Preset name…"
+              aria-label="Name this filter preset"
+              autoFocus
+              spellCheck={false}
+              onChange={(e) => setNaming(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setNaming(null); }}
+            />
+          </form>
+        )}
 
         <div className="filters__reset-slot">
           {active && (

@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from '../data/sidecarClient.ts';
+import { reportFailure } from '../data/noticeStore.ts';
 import { isSignedIn } from '../data/searchStore.ts';
 import { EngineBusyError } from '../data/sidecarClient.ts';
 
@@ -82,7 +83,7 @@ export function SignIn({
   }, [client, username, password]);
 
   const disconnect = useCallback(() => {
-    void client?.request('connection.disconnect').catch(() => {});
+    void client?.request('connection.disconnect').catch(reportFailure('disconnect'));
   }, [client]);
 
   if (!client) {

@@ -14,8 +14,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from '../data/sidecarClient.ts';
+import { reportFailure } from '../data/noticeStore.ts';
 import type { Filters } from '../domain/types.ts';
-import { EMPTY_FILTERS } from '../domain/types.ts';
+import { EMPTY_FILTERS, normaliseFilters } from '../domain/types.ts';
 import { IconEmpty, IconSearch, IconUser, IconUsers } from '../icons/index.tsx';
 
 /* Filters contain a Set, which JSON cannot carry. These two are the only places
@@ -27,12 +28,9 @@ export function serialiseFilters(f: Filters): string {
 export function deserialiseFilters(json: string): Filters {
   if (!json) return EMPTY_FILTERS;
   try {
-    const raw = JSON.parse(json) as Record<string, unknown>;
-    return {
-      ...EMPTY_FILTERS,
-      ...raw,
-      formats: new Set(Array.isArray(raw.formats) ? (raw.formats as string[]) : []),
-    };
+    // normaliseFilters, not a spread: an unvalidated spread would let a stored
+    // blob from an older build smuggle wrong types into every filter check.
+    return normaliseFilters(JSON.parse(json));
   } catch {
     // A corrupt saved filter should not take the screen down with it.
     return EMPTY_FILTERS;
@@ -69,7 +67,7 @@ export function HistoryView({
   const clear = useCallback(() => {
     void client?.request<{ items: string[] }>('history.clear')
       .then((r) => setItems(r.items ?? []))
-      .catch(() => {});
+      .catch(reportFailure('clear the history'));
   }, [client]);
 
   return (
@@ -134,7 +132,7 @@ export function SavedView({
   const remove = useCallback((query: string) => {
     void client?.request<{ items: SavedSearch[] }>('saved.remove', { query })
       .then((r) => setItems(r.items ?? []))
-      .catch(() => {});
+      .catch(reportFailure('remove that saved search'));
   }, [client]);
 
   return (
@@ -204,13 +202,13 @@ export function FollowedView({
     if (!who || !client) return;
     void client.request<{ items: string[] }>('buddies.add', { username: who })
       .then((r) => { setItems(r.items ?? []); setDraft(''); })
-      .catch(() => {});
+      .catch(reportFailure(`follow ${who}`));
   }, [client, draft]);
 
   const remove = useCallback((who: string) => {
     void client?.request<{ items: string[] }>('buddies.remove', { username: who })
       .then((r) => setItems(r.items ?? []))
-      .catch(() => {});
+      .catch(reportFailure(`unfollow ${who}`));
   }, [client]);
 
   return (
