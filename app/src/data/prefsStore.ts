@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import { EngineBusyError } from './sidecarClient.ts';
 import { reliabilityFrom } from '../domain/score.ts';
 
@@ -120,6 +121,8 @@ export function usePrefs(client: SidecarClient | null): PrefsSession {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const gen = useSidecarGeneration(client);
+
   useEffect(() => {
     if (!client) return;
 
@@ -135,7 +138,9 @@ export function usePrefs(client: SidecarClient | null): PrefsSession {
       .catch(() => {});
 
     return () => { offSettings(); offPeers(); };
-  }, [client]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, gen]);
 
   const patch = useCallback((p: AppSettingsPatch) => {
     if (!client) return;

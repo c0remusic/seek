@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import type { WantEntry, WantStatus } from './wantStore.ts';
 
 export interface DigSession {
@@ -76,6 +77,8 @@ export function useSessions(
 ): SessionsSession {
   const [sessions, setSessions] = useState<DigSession[]>([]);
 
+  const gen = useSidecarGeneration(client);
+
   useEffect(() => {
     if (!client) return;
     const off = client.on('session.changed', (data) => {
@@ -85,7 +88,9 @@ export function useSessions(
       .then((r) => setSessions(r.sessions ?? []))
       .catch(() => {});
     return off;
-  }, [client]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, gen]);
 
   /* The aggregates the sidecar deliberately does not store. Recomputed from
    * the want list, which is the only copy — two places holding the same count

@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import { fuzzyKey } from '../domain/text.ts';
 
 export type WantStatus = 'pending' | 'searching' | 'found' | 'downloaded' | 'not_found';
@@ -109,6 +110,8 @@ export function resultsMatch(
 export function useWant(client: SidecarClient | null): WantSession {
   const [entries, setEntries] = useState<WantEntry[]>([]);
 
+  const gen = useSidecarGeneration(client);
+
   useEffect(() => {
     if (!client) return;
     const off = client.on('want.changed', (data) => {
@@ -118,7 +121,9 @@ export function useWant(client: SidecarClient | null): WantSession {
       .then((r) => setEntries(r.entries ?? []))
       .catch(() => {});
     return off;
-  }, [client]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, gen]);
 
   const add = useCallback(async (incoming: NewWantEntry[]) => {
     if (!client || incoming.length === 0) return;

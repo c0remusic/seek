@@ -5,10 +5,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './ui/Sidebar.tsx';
+import { ErrorBoundary } from './ui/ErrorBoundary.tsx';
 import { UpdateBanner } from './ui/UpdateBanner.tsx';
 import type { ConnectionStatus, Section } from './ui/Sidebar.tsx';
 import type { SearchSession } from './data/searchStore.ts';
 import type { SidecarClient } from './data/sidecarClient.ts';
+import { isTauri } from './data/sidecarClient.ts';
 import { SearchView } from './ui/SearchView.tsx';
 import { SectionView } from './ui/views.tsx';
 import type { Density, SearchDensity } from './ui/ViewMenu.tsx';
@@ -115,12 +117,23 @@ function storedDensity(key: string, fallback: Density): Density {
 }
 
 /**
- * Four distinct states, because collapsing them would lie. A live socket to the
- * sidecar does not mean we are signed in to Soulseek, and saying "Connected"
- * when a search would return `not_connected` is exactly the confidently-wrong
- * behaviour this app exists to avoid.
+ * Five distinct states, because collapsing them would lie. A live socket to
+ * the sidecar does not mean we are signed in to Soulseek, and saying
+ * "Connected" when a search would return `not_connected` is exactly the
+ * confidently-wrong behaviour this app exists to avoid.
+ *
+ * Exported for the tests: the branches decide sentences a person reads and a
+ * button they can press, and both are cheap to pin.
  */
-function connectionStatus(session: SearchSession): ConnectionStatus {
+export function connectionStatus(
+  session: SearchSession,
+  engine?: { exit: number | null | undefined; restart(): void },
+): ConnectionStatus {
+  // Only offered where the shell can actually do it: in a plain browser tab
+  // there is no shell and the button would be a lie.
+  const restartAction = engine && isTauri()
+    ? { label: 'Restart engine', run: engine.restart }
+    : undefined;
   if (session.isMock) {
     return {
       dot: 'offline',
@@ -132,11 +145,23 @@ function connectionStatus(session: SearchSession): ConnectionStatus {
   if (session.phase === 'connecting') {
     return { dot: 'pending', label: 'Connecting…', detail: 'Reaching the sidecar.' };
   }
+  if (engine && engine.exit !== undefined) {
+    const code = engine.exit === null ? '' : ` (code ${engine.exit})`;
+    return {
+      dot: 'offline',
+      label: 'Engine crashed',
+      detail: `The engine exited${code}. Seek restarts it automatically; if it `
+        + 'keeps dying, restart it from here and then use Copy diagnostics in '
+        + 'Settings.',
+      action: restartAction,
+    };
+  }
   if (session.phase === 'closed') {
     return {
       dot: 'offline',
       label: 'Sidecar unreachable',
       detail: 'The sidecar is not answering. It may have exited, or the token may be wrong.',
+      action: restartAction,
     };
   }
   if (!isSignedIn(session.serverState)) {
@@ -786,7 +811,7 @@ export default function App() {
         onSelect={go}
         downloadCount={transfers.activeCount}
         browsingUser={browse.current?.username ?? null}
-        status={connectionStatus(session)}
+        status={connectionStatus(session, { exit: conn.engineExit, restart: conn.restart })}
         throughput={throughput}
         roomUnread={roomUnread}
         privateUnread={privateUnread}
@@ -796,6 +821,11 @@ export default function App() {
         uploadCount={transfers.uploadCount}
       />
       <main className="pane" data-scrolled="false">
+        {/* Per-pane wall: a throw in one view must not take the sidebar and
+          * the other sections with it. `key={section}` remounts the boundary
+          * on navigation, so a crashed view cannot hold its fallback over a
+          * different, healthy section. */}
+        <ErrorBoundary label={section} key={section}>
         {section === 'search' ? (
           <SearchView
             session={session}
@@ -967,6 +997,7 @@ export default function App() {
             connections={connections}
           />
         )}
+        </ErrorBoundary>
       </main>
     </div>
   );

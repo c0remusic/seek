@@ -177,6 +177,16 @@ input { font: inherit; color: inherit; }
   gap: var(--sp-1);
 }
 .sidebar__conn { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+/* The status row's one verb ("Restart engine"). A text button, not a .btn:
+   the footer whispers, and a raised control there would out-shout the thing
+   it is trying to fix. */
+.sidebar__conn-action {
+  align-self: flex-start;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tr-micro);
+  color: var(--accent);
+  cursor: default;
+}
 
 /* The live rate. Two fixed-width columns rather than a flex row: the numbers
    change every second, and letting them size themselves means the up arrow

@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
+import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import { readableError } from '../domain/folders.ts';
 
 export interface Profile {
@@ -61,13 +62,17 @@ export function useProfile(client: SidecarClient | null): ProfileSession {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const gen = useSidecarGeneration(client);
+
   useEffect(() => {
     if (!client) {
       setProfile(null);
       return;
     }
     void client.request<Profile>('profile.get').then(setProfile).catch(() => {});
-  }, [client]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, gen]);
 
   const save = useCallback(async (patch: ProfilePatch) => {
     if (!client) throw new Error('Not connected to the engine.');
@@ -114,6 +119,7 @@ const EMPTY: ConnectionSnapshot = { socketCount: 0, peers: [] };
 export function useConnections(client: SidecarClient | null): ConnectionsSession {
   const [snapshot, setSnapshot] = useState<ConnectionSnapshot>(EMPTY);
   const [available, setAvailable] = useState(false);
+  const gen = useSidecarGeneration(client);
 
   useEffect(() => {
     if (!client) {
@@ -132,7 +138,9 @@ export function useConnections(client: SidecarClient | null): ConnectionsSession
       .then((r) => { setSnapshot(r); setAvailable(true); })
       .catch(() => {});
     return off;
-  }, [client]);
+  // `gen` re-runs this after a reconnect: events missed while the socket
+  // was down are gone, so the snapshot has to be asked for again.
+  }, [client, gen]);
 
   return { snapshot, available };
 }

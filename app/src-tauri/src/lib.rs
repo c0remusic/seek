@@ -28,9 +28,32 @@ pub struct Endpoint {
     pub token: String,
 }
 
-/// Kept so the child can be killed on exit. `Drop` is not enough — the app can
-/// be terminated in ways that never unwind — so `RunEvent::Exit` kills it too.
-struct Sidecar(Mutex<Option<Child>>);
+/// Everything the shell knows about the engine, under one lock.
+///
+/// One mutex rather than three managed values, because the fields move
+/// together: a restart swaps the child AND the endpoint AND clears the error,
+/// and any reader seeing half of that would tell the frontend something
+/// untrue.
+struct Supervisor {
+    /// Kept so the child can be killed on exit. `Drop` is not enough — the
+    /// app can be terminated in ways that never unwind — so `RunEvent::Exit`
+    /// kills it too.
+    child: Option<Child>,
+    endpoint: Option<Endpoint>,
+    error: Option<String>,
+    /// True once the app is exiting: tells the watchdog that a dead child is
+    /// the kill we asked for, not a crash to restart.
+    shutting_down: bool,
+    /// Automatic restarts remaining before the shell gives up and leaves it
+    /// to the person. A successful auto-restart does NOT refill this — a
+    /// crash-looping engine burns its budget and stops; the manual restart
+    /// command refills it, because a person clicking is saying "try again".
+    auto_restarts_left: u32,
+}
+
+const AUTO_RESTARTS: u32 = 3;
+
+struct Sidecar(Mutex<Supervisor>);
 
 /// The frozen sidecar carried inside the bundle, if there is one.
 ///
@@ -248,8 +271,8 @@ fn spawn_sidecar() -> Result<(Child, Endpoint), String> {
 /// The frontend asks for this on mount. Returning `Ok(None)` means "no sidecar,
 /// stay on recorded data" — a normal state, not an error.
 #[tauri::command]
-fn sidecar_endpoint(state: tauri::State<'_, Option<Endpoint>>) -> Option<Endpoint> {
-    let value = state.inner().clone();
+fn sidecar_endpoint(state: tauri::State<'_, Sidecar>) -> Option<Endpoint> {
+    let value = state.0.lock().ok().and_then(|sup| sup.endpoint.clone());
     eprintln!("seek: sidecar_endpoint invoked -> {}",
               if value.is_some() { "Some" } else { "None" });
     value
@@ -258,8 +281,99 @@ fn sidecar_endpoint(state: tauri::State<'_, Option<Endpoint>>) -> Option<Endpoin
 /// Surfaced in the UI when the sidecar could not be started, so the failure is
 /// explained rather than appearing as a silently offline app.
 #[tauri::command]
-fn sidecar_error(state: tauri::State<'_, Option<String>>) -> Option<String> {
-    state.inner().clone()
+fn sidecar_error(state: tauri::State<'_, Sidecar>) -> Option<String> {
+    state.0.lock().ok().and_then(|sup| sup.error.clone())
+}
+
+/// Kill whatever is running, start a fresh sidecar, and tell the page.
+///
+/// Every restart mints a NEW port and token, so the page has to be re-told
+/// both ways: the window global for any future page load, the `sidecar-ready`
+/// event for the scripts already running. The caller holds the supervisor
+/// lock; `spawn_sidecar`'s blocking endpoint handshake therefore runs under
+/// it, which is accepted — the only contenders are the 1 s watchdog poll and
+/// the Exit kill, and delaying either by an engine boot is harmless.
+fn do_restart(app: &tauri::AppHandle, sup: &mut Supervisor) -> Result<Endpoint, String> {
+    if let Some(child) = sup.child.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    sup.child = None;
+    match spawn_sidecar() {
+        Ok((child, endpoint)) => {
+            sup.child = Some(child);
+            sup.endpoint = Some(endpoint.clone());
+            sup.error = None;
+            if let Ok(json) = serde_json::to_string(&endpoint) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.eval(&format!("window.__SEEK_SIDECAR__={json};"));
+                }
+            }
+            let _ = app.emit("sidecar-ready", endpoint.clone());
+            Ok(endpoint)
+        }
+        Err(message) => {
+            sup.endpoint = None;
+            sup.error = Some(message.clone());
+            Err(message)
+        }
+    }
+}
+
+/// The sidebar's "Restart engine" button.
+#[tauri::command]
+fn restart_sidecar(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Sidecar>,
+) -> Result<Endpoint, String> {
+    let mut sup = state.0.lock().map_err(|_| "engine state poisoned".to_string())?;
+    sup.auto_restarts_left = AUTO_RESTARTS;
+    do_restart(&app, &mut sup)
+}
+
+/// Notice the sidecar dying, and bring it back.
+///
+/// Polls `try_wait` rather than blocking in `wait()`: a blocking wait would
+/// have to own the `Child`, and the Exit handler needs the same child to kill
+/// — polling under short lock holds sidesteps the ownership fight on every
+/// platform. One second of detection latency is nothing against the
+/// frontend's own 8 s reconnect cap.
+fn spawn_watchdog(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let state = app.state::<Sidecar>();
+        let backoff;
+        {
+            let Ok(mut sup) = state.0.lock() else { return };
+            if sup.shutting_down {
+                return;
+            }
+            match sup.child.as_mut().map(|c| c.try_wait()) {
+                // Alive, or nothing to watch (startup failed; a manual
+                // restart may install a child later) — keep looping.
+                Some(Ok(None)) | None => continue,
+                Some(Err(_)) => continue,
+                Some(Ok(Some(status))) => {
+                    sup.child = None;
+                    eprintln!("seek: sidecar exited ({status})");
+                    let _ = app.emit("sidecar-died", status.code());
+                    if sup.auto_restarts_left == 0 {
+                        sup.error =
+                            Some("the engine keeps crashing; restart it from the sidebar".into());
+                        continue; // keep watching: a manual restart re-arms us
+                    }
+                    sup.auto_restarts_left -= 1;
+                    backoff = 1u64 << (AUTO_RESTARTS - 1 - sup.auto_restarts_left); // 1, 2, 4 s
+                }
+            }
+        } // NEVER sleep holding the lock: Exit needs it to kill.
+        std::thread::sleep(std::time::Duration::from_secs(backoff));
+        let Ok(mut sup) = state.0.lock() else { return };
+        if sup.shutting_down {
+            return;
+        }
+        let _ = do_restart(&app, &mut sup);
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -348,10 +462,18 @@ pub fn run() {
         // diagnostics awaits the engine before writing. Both problems belong to
         // the webview; this plugin writes from Rust and has neither.
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(endpoint.clone())
-        .manage(error)
-        .manage(Sidecar(Mutex::new(child)))
-        .invoke_handler(tauri::generate_handler![sidecar_endpoint, sidecar_error])
+        .manage(Sidecar(Mutex::new(Supervisor {
+            child,
+            endpoint: endpoint.clone(),
+            error,
+            shutting_down: false,
+            auto_restarts_left: AUTO_RESTARTS,
+        })))
+        .invoke_handler(tauri::generate_handler![
+            sidecar_endpoint,
+            sidecar_error,
+            restart_sidecar
+        ])
         .setup(move |app| {
             // Inject the endpoint straight into the page.
             //
@@ -372,6 +494,9 @@ pub fn run() {
                 }
                 let _ = app.emit("sidecar-ready", endpoint);
             }
+            // From here on the engine's death is noticed, reported to the
+            // page, and — within a small budget — repaired.
+            spawn_watchdog(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -379,11 +504,15 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<Sidecar>() {
-                    if let Ok(mut guard) = state.0.lock() {
-                        if let Some(child) = guard.as_mut() {
+                    if let Ok(mut sup) = state.0.lock() {
+                        // Before the kill, so the watchdog reads the death as
+                        // deliberate rather than as a crash to repair.
+                        sup.shutting_down = true;
+                        if let Some(child) = sup.child.as_mut() {
                             let _ = child.kill();
                             let _ = child.wait();
                         }
+                        sup.child = None;
                     }
                 }
             }
