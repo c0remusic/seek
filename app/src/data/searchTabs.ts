@@ -25,6 +25,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SearchSession, SearchSnapshot } from './searchStore.ts';
+import type { WantTrack } from '../../../shared/protocol.ts';
 
 export interface SearchTab {
   id: string;
@@ -49,7 +50,8 @@ export interface SearchTabs {
    * you just opened must not open a second one beside it and leave the first
    * blank forever.
    */
-  openWith(query: string, expectedTracks?: number | null): void;
+  openWith(query: string, expectedTracks?: number | null,
+    expectedTracklist?: WantTrack[] | null): void;
   /** Close one. Never closes the last: an empty window is not a state. */
   close(id: string): void;
   /**
@@ -85,7 +87,7 @@ function blank(session: SearchSession): SearchSnapshot {
     query: '', files: [], peers: [], filters: session.filters,
     groupBy: session.groupBy, sort: session.sort,
     expanded: new Set(), closedReason: null, tick: 0,
-    expectedTracks: null,
+    expectedTracks: null, expectedTracklist: null,
   };
 }
 
@@ -189,7 +191,8 @@ export function useSearchTabs(session: SearchSession): SearchTabs {
     setIds(next);
   }, [ids, activeId, session]);
 
-  const openWith = useCallback((query: string, expectedTracks?: number | null) => {
+  const openWith = useCallback((query: string, expectedTracks?: number | null,
+    expectedTracklist?: WantTrack[] | null) => {
     const text = query.trim();
     if (!text) return;
 
@@ -211,7 +214,10 @@ export function useSearchTabs(session: SearchSession): SearchTabs {
     } else {
       ranQuery.current.set(activeRef.current, text);
     }
-    session.run(text, { expectedTracks: expectedTracks ?? null });
+    session.run(text, {
+      expectedTracks: expectedTracks ?? null,
+      expectedTracklist: expectedTracklist ?? null,
+    });
   }, [open, session]);
 
   const markUsed = useCallback(() => {

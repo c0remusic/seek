@@ -281,7 +281,12 @@ export default function App() {
     want.update(entry.id, { status: 'searching' });
     const query = want.queryFor(entry);
     setSection('search');
-    searchTabs.openWith(query);
+    // The entry's Discogs tracklist has been riding the wire since the
+    // matching work landed and was never read at search time — this is where
+    // it finally pays: completeness judged against the pressing that was
+    // SAVED, and the missing tracks named.
+    const tracklist = entry.tracklist.length > 0 ? entry.tracklist : null;
+    searchTabs.openWith(query, tracklist ? tracklist.length : null, tracklist);
   }, [want, searchTabs]);
 
   useEffect(() => {
