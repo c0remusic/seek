@@ -512,6 +512,21 @@ export function SearchView({
                 stopped listening
               </span>
             )}
+            {/* Only for the two natural endings. There is no protocol way to
+              * extend a live search, so the honest offer is a fresh one — and
+              * after 'stopped' the user just asked for silence, while
+              * 'disconnected' already has its own banner below. */}
+            {!session.running
+              && (session.closedReason === 'timeout' || session.closedReason === 'result_cap')
+              && session.query.trim() !== '' && (
+              <button
+                type="button"
+                className="verify pressable"
+                onPointerDown={() => session.run()}
+              >
+                Search again
+              </button>
+            )}
           </div>
 
           <div className="resultbar__controls">
