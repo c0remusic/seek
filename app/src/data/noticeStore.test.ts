@@ -13,7 +13,10 @@ import {
   pushNotice, reportFailure, resetNoticesForTest, useNotice,
 } from './noticeStore.ts';
 import { EngineBusyError } from './sidecarClient.ts';
+import type { SidecarClient } from './sidecarClient.ts';
 import { Notice } from '../ui/Notice.tsx';
+import { useWant } from './wantStore.ts';
+import { renderHook } from '@testing-library/react';
 
 function currentNotice() {
   let value: ReturnType<typeof useNotice> = null;
@@ -72,5 +75,42 @@ describe('noticeStore', () => {
     expect(screen.getByRole('alert').textContent).toContain('visible failure');
     fireEvent.click(screen.getByText('Dismiss'));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+/* One representative of the rollout pattern: a store write whose rejection
+ * used to vanish now lands in the notice. The other ~20 sites are the same
+ * one-line change; the sentences are pinned above. */
+describe('rollout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetNoticesForTest();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('a refused want.remove surfaces instead of vanishing', async () => {
+    const client = {
+      request: (cmd: string) => cmd === 'want.remove'
+        ? Promise.reject(new Error('bad_request: nope'))
+        : new Promise(() => {}),
+      on: () => () => {},
+      onPhase: () => () => {},
+      onGeneration: () => () => {},
+      generation: 0,
+      phase: 'open',
+      open() {}, close() {}, start() {}, stop() {}, setRate() {},
+      running: false,
+    } as unknown as SidecarClient;
+
+    const read = currentNotice();
+    const { result } = renderHook(() => useWant(client));
+    await act(async () => {
+      result.current.remove(['x']);
+      await Promise.resolve();
+    });
+    expect(read()?.text).toBe('Could not remove from the want list: nope');
   });
 });
