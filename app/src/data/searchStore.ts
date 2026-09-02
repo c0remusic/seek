@@ -28,6 +28,8 @@ import { TIER_RANK } from '../domain/quality.ts';
 import { reliabilityFrom } from '../domain/score.ts';
 import { adaptSearchResult, isAudioPath } from './adapt.ts';
 import type { WireSearchClosedData, WireSearchResultData } from './adapt.ts';
+import { GLOBAL_SCOPE } from './mockSidecar.ts';
+import type { SearchScope } from './mockSidecar.ts';
 import type { SidecarConnection } from './connectionStore.ts';
 import type { ConnectionPhase, SidecarClient } from './sidecarClient.ts';
 
@@ -135,6 +137,8 @@ export interface SearchSnapshot {
   tick: number;
   /** See SearchSession.expectedTracks. Carried per tab. */
   expectedTracks: number | null;
+  /** Where this tab's searches look. Carried per tab, like filters. */
+  scope: SearchScope;
 }
 
 export interface SearchSessionOptions {
@@ -155,6 +159,9 @@ export interface SearchSession {
    * longer that release.
    */
   expectedTracks: number | null;
+  /** Where searches in this tab look. Defaults to everyone. */
+  scope: SearchScope;
+  setScope(scope: SearchScope): void;
   running: boolean;
   closedReason: string | null;
 
@@ -227,6 +234,7 @@ export function useSearchSession(
   const [running, setRunning] = useState(false);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const [expectedTracks, setExpectedTracks] = useState<number | null>(null);
+  const [scope, setScope] = useState<SearchScope>(GLOBAL_SCOPE);
   const [filters, setFiltersState] = useState<Filters>(EMPTY_FILTERS);
   // docs/PRODUCT.md §4: release cards are the default presentation.
   const [groupBy, setGroupByState] = useState<GroupBy>('release');
@@ -325,9 +333,9 @@ export function useSearchSession(
           setRunning(false);
           setClosedReason(data.reason);
         },
-      });
+      }, scope);
     },
-    [query, sidecar, grouper, flush],
+    [query, sidecar, grouper, flush, scope],
   );
 
   const stop = useCallback(() => {
@@ -522,7 +530,8 @@ export function useSearchSession(
     filters, groupBy, sort, expanded, closedReason,
     tick: tickRef.current,
     expectedTracks,
-  }), [query, grouper, filters, groupBy, sort, expanded, closedReason, expectedTracks]);
+    scope,
+  }), [query, grouper, filters, groupBy, sort, expanded, closedReason, expectedTracks, scope]);
 
   const restore = useCallback((snap: SearchSnapshot) => {
     /* Stop first. Only one search can run at a time — `sidecar.start` replaces
@@ -550,12 +559,13 @@ export function useSearchSession(
     setExpanded(snap.expanded);
     setClosedReason(snap.closedReason);
     setExpectedTracks(snap.expectedTracks);
+    setScope(snap.scope);
     setRunning(false);
     setTick(snap.tick);
   }, [sidecar, grouper]);
 
   return {
-    query, setQuery, run, stop, running, closedReason, expectedTracks,
+    query, setQuery, run, stop, running, closedReason, expectedTracks, scope, setScope,
     snapshot, restore,
     rows,
     pendingCount: pending.length,
