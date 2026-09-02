@@ -209,6 +209,42 @@ def test_discogs_release():
     assert archangel["duration"] == 239
 
 
+def test_discogs_positions_are_sequential_and_multi_disc_positions_state_the_disc():
+    """First-integer numbering gave a 2xCD two "track 1"s: "1-1" and "2-1"
+    both contain a 1. Sequential positions keep ordering and uniqueness; the
+    disc comes from the position SHAPE, and the raw string keeps the truth."""
+    rows = discover._discogs_tracklist({"tracklist": [
+        {"position": "1-1", "type_": "track", "title": "a", "duration": "1:00"},
+        {"position": "1-2", "type_": "track", "title": "b"},
+        {"position": "2-1", "type_": "track", "title": "c"},
+    ]})
+    assert [r["position"] for r in rows] == [1, 2, 3]
+    assert [r["disc"] for r in rows] == [1, 1, 2]
+    assert [r["rawPosition"] for r in rows] == ["1-1", "1-2", "2-1"]
+
+
+def test_discogs_vinyl_sides_pair_into_discs():
+    rows = discover._discogs_tracklist({"tracklist": [
+        {"position": "A1", "type_": "track", "title": "a"},
+        {"position": "A2", "type_": "track", "title": "b"},
+        {"position": "B1", "type_": "track", "title": "c"},
+        {"position": "C1", "type_": "track", "title": "d"},
+    ]})
+    assert [r["position"] for r in rows] == [1, 2, 3, 4]
+    assert [r["disc"] for r in rows] == [1, 1, 1, 2]
+
+
+def test_discogs_unparseable_positions_never_guess_a_disc():
+    rows = discover._discogs_tracklist({"tracklist": [
+        {"position": "AA", "type_": "track", "title": "a"},
+        {"position": "", "type_": "track", "title": "b"},
+    ]})
+    assert [r["position"] for r in rows] == [1, 2]
+    assert [r["disc"] for r in rows] == [None, None]
+    assert rows[0]["rawPosition"] == "AA"
+    assert rows[1]["rawPosition"] is None
+
+
 def test_discogs_master_reads_what_a_master_actually_carries():
     """A /masters/ payload has NO labels and NO formats — a master is the
     abstraction over pressings, so label/catalogNumber staying None is the

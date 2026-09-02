@@ -407,7 +407,10 @@ export default function App() {
       // parse the user corrects should not erase what it was corrected from.
       sourceTitle: p.rawTitle || null,
       artworkUri: p.artworkUri,
-      tracklist: [],
+      // The provider's tracklist, whole. It used to be dropped here — the
+      // one place that turns a release the user chose into a want entry threw
+      // away the per-track credits and durations the wire had carried.
+      tracklist: p.tracklist,
     }]);
     discover.dismiss();
     go('want');

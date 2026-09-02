@@ -47,7 +47,10 @@ export interface WireParsed {
   artworkUri: string | null;
   duration: number | null;
   genres: string[];
-  tracklist: Array<{ position: number; title: string; artist: string; duration: number | null }>;
+  tracklist: Array<{
+    position: number; title: string; artist: string; duration: number | null;
+    disc: number | null; rawPosition: string | null;
+  }>;
   providerUrl: string | null;
 }
 
@@ -67,6 +70,9 @@ export interface DiscoverPreview {
   artworkUri: string | null;
   genres: string[];
   trackCount: number;
+  /** The provider's own tracklist — kept whole, not just counted, so adding
+   *  the release to the want list carries every track it named. */
+  tracklist: WireParsed['tracklist'];
   /** 1 when the provider stated the fields outright; a parse score otherwise. */
   confidence: number;
   /** Null when nothing was parsed — the provider simply told us. */
@@ -170,7 +176,7 @@ function skeleton(url: string, provider: UrlProvider | null): DiscoverPreview {
   return {
     url, provider, kind: 'track', rawTitle: '', artist: '', title: '',
     album: null, year: null, label: null, catalogNumber: null,
-    artworkUri: null, genres: [], trackCount: 0,
+    artworkUri: null, genres: [], trackCount: 0, tracklist: [],
     confidence: 0, parsedFrom: null, loading: true, error: null, needs: '',
   };
 }
@@ -246,6 +252,7 @@ export function previewFromWire(d: WireParsed): DiscoverPreview {
     artworkUri: d.artworkUri,
     genres: d.genres ?? [],
     trackCount: (d.tracklist ?? []).length,
+    tracklist: d.tracklist ?? [],
     confidence: stated ? 1 : (parsed?.confidence ?? 0),
     parsedFrom: stated ? null : (parsed?.from ?? null),
     loading: false,
@@ -372,6 +379,7 @@ export function useDiscover(client: SidecarClient | null): DiscoverSession {
         artworkUri: null,
         genres: [],
         trackCount: 0,
+        tracklist: [],
         /* AcoustID's own score, passed through rather than reinterpreted. It
          * is confidence that the FINGERPRINT matched, which is a different
          * claim from "this metadata is right" — the card words it that way. */

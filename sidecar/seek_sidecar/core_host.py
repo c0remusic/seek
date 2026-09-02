@@ -2272,6 +2272,15 @@ class CoreHost:
                 continue
             entry = dict(self.WANT_DEFAULTS)
             entry.update(raw)
+            # Same backfill, one level down: tracklist ROWS persisted before a
+            # field existed would make the whole want.changed event fail
+            # validation — the validator refuses missing keys everywhere, not
+            # just at the top.
+            entry["tracklist"] = [
+                {"disc": None, "rawPosition": None, **track}
+                for track in entry.get("tracklist") or []
+                if isinstance(track, dict)
+            ]
             entries.append(entry)
         return entries
 

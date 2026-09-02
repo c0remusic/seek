@@ -65,8 +65,8 @@ describe('previewFromWire — Bandcamp and Discogs, where fields are stated', ()
       title: 'In Full Effect', album: 'In Full Effect', year: 2024,
       label: 'Tim Reaper',
       tracklist: [
-        { position: 1, title: 'Continuities', artist: '', duration: 395 },
-        { position: 2, title: 'Blood Pressure', artist: '', duration: 317 },
+        { position: 1, title: 'Continuities', artist: '', duration: 395, disc: null, rawPosition: null },
+        { position: 2, title: 'Blood Pressure', artist: '', duration: 317, disc: null, rawPosition: null },
       ],
     }));
     expect(p.artist).toBe('Tim Reaper, Kloke');
@@ -97,6 +97,7 @@ describe('previewFromWire — Bandcamp and Discogs, where fields are stated', ()
       genres: ['Electronic', 'Dubstep'],
       tracklist: new Array(13).fill(null).map((_x, i) => ({
         position: i + 1, title: `t${i}`, artist: '', duration: null,
+        disc: null, rawPosition: null,
       })),
     }));
     expect(p.label).toBe('Hyperdub');

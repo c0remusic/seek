@@ -39,7 +39,10 @@ export interface WantEntry {
   searchedAt: number | null;
   notes: string | null;
   duration: number | null;
-  tracklist: Array<{ position: number; title: string; artist: string; duration: number | null }>;
+  tracklist: Array<{
+    position: number; title: string; artist: string; duration: number | null;
+    disc: number | null; rawPosition: string | null;
+  }>;
   /** The digging session this was saved during, if any. */
   sessionId: string | null;
 }

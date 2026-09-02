@@ -433,6 +433,10 @@ def parse_bandcamp(url, fetch_text=None, fetch_image=None):
                 "title": _bc_name(item.get("name")),
                 "artist": _bc_name(item.get("byArtist")),
                 "duration": _bc_duration(item.get("duration")),
+                # Bandcamp numbers sequentially and says nothing about discs,
+                # so there is no rawer truth than `position` to keep.
+                "disc": None,
+                "rawPosition": None,
             })
     elif kind == "track":
         out["album"] = _bc_name(data.get("inAlbum")) or None
@@ -512,19 +516,41 @@ def _duration_seconds(text):
     return seconds or None
 
 
+def _discogs_disc(position):
+    """Which disc a Discogs position string names, or None.
+
+    Never a guess: "2-1" states disc 2; a single leading side letter states a
+    vinyl side, and sides pair up into discs (A/B -> 1, C/D -> 2). Anything
+    else — "AA", "CD1-3", plain numbers — stays None, with the truth preserved
+    in rawPosition.
+    """
+    multi = re.fullmatch(r"(\d+)-\d+", position)
+    if multi:
+        return int(multi.group(1))
+    side = re.fullmatch(r"([A-Za-z])\d*", position)
+    if side:
+        return (ord(side.group(1).upper()) - ord("A")) // 2 + 1
+    return None
+
+
 def _discogs_tracklist(payload):
     out = []
     for entry in payload.get("tracklist") or []:
         # Headings and index tracks have no position and are not tracks.
         if str(entry.get("type_") or "track") != "track":
             continue
-        position = str(entry.get("position") or "")
-        number = re.search(r"\d+", position)
+        position = str(entry.get("position") or "").strip()
         out.append({
-            "position": int(number.group()) if number else 0,
+            # Sequential, NOT the first integer in the string: "1-1" and "2-1"
+            # both contain a 1, and vinyl's "A1"/"B1" collide the same way —
+            # first-integer numbering gave multi-disc releases two "track 1"s
+            # and side-B openers the wrong slot.
+            "position": len(out) + 1,
             "title": str(entry.get("title") or ""),
             "artist": _discogs_credit(entry),
             "duration": _duration_seconds(entry.get("duration")),
+            "disc": _discogs_disc(position),
+            "rawPosition": position or None,
         })
     return out
 
