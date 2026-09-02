@@ -489,7 +489,10 @@ def main():
 
     for path, content in outputs:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
+        # newline pinned: on Windows, text mode would write CRLF — which
+        # --check cannot see (universal newlines on read) but git can, as a
+        # whole-file diff on the next unix regeneration.
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(content)
         print(f"wrote {os.path.relpath(path, ROOT)} ({len(content)} bytes)")
     return 0

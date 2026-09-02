@@ -10,24 +10,13 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Seek",
         "width": 1280,
         "height": 840,
         "minWidth": 880,
-        "minHeight": 560,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "transparent": true,
-        "windowEffects": {
-          "effects": [
-            "sidebar"
-          ],
-          "state": "followsWindowActiveState",
-          "radius": 10.0
-        }
+        "minHeight": 560
       }
     ],
     "security": {

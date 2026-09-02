@@ -228,6 +228,9 @@ def test_a_picture_path_is_stored_resolved(host, tmp_path, monkeypatch):
     png = home / "me.png"
     png.write_bytes(b"\x89PNG\r\n\x1a\n")
     monkeypatch.setenv("HOME", str(home))
+    # ntpath.expanduser never reads HOME (since 3.8 it wants USERPROFILE), so
+    # patch both or the Windows run expands ~ into the real profile.
+    monkeypatch.setenv("USERPROFILE", str(home))
 
     host._cmd_profile_set({
         "description": None, "picturePath": "~/me.png", "pictureVisible": None,
