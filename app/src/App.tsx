@@ -852,6 +852,7 @@ export default function App() {
             onBrowse={(who) => { browse.browse(who); go('browsing'); }}
             prefs={prefs.settings}
             peers={(username) => prefs.peers.get(username)}
+            joinedRooms={chat.rooms.filter((r) => r.joined).map((r) => r.name)}
             discover={discover.enabled ? discover : undefined}
             onOpenSettings={() => go('settings')}
             onWant={want.enabled ? addPreviewToWant : undefined}

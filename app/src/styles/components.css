@@ -698,6 +698,25 @@
   font-size: var(--fs-caption); letter-spacing: var(--tr-caption); color: var(--text-tertiary);
 }
 
+/* ============================================================ scopepick == */
+
+/* The scope picker borrows every viewmenu class; only its free-text rows are
+   its own. The pill must not grow with a long room name and squeeze the
+   search field out. */
+.scopepick .viewmenu__label {
+  max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scopepick__row { padding: var(--sp-1) var(--sp-2) var(--sp-2); }
+.scopepick__field {
+  width: 100%; height: 1.625rem; padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 0.5px solid var(--border-control);
+  background: var(--bg-raised);
+  font-size: var(--fs-caption); letter-spacing: var(--tr-caption);
+  color: var(--text-primary);
+}
+.scopepick__field::placeholder { color: var(--text-tertiary); }
+
 /* =============================================================== toggle == */
 
 .toggle {
