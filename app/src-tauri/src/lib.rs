@@ -307,7 +307,7 @@ fn do_restart(app: &tauri::AppHandle, sup: &mut Supervisor) -> Result<Endpoint, 
             sup.error = None;
             if let Ok(json) = serde_json::to_string(&endpoint) {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.eval(&format!("window.__SEEK_SIDECAR__={json};"));
+                    let _ = window.eval(format!("window.__SEEK_SIDECAR__={json};"));
                 }
             }
             let _ = app.emit("sidecar-ready", endpoint.clone());
@@ -494,7 +494,7 @@ pub fn run() {
             if let Some(endpoint) = endpoint.clone() {
                 if let Ok(json) = serde_json::to_string(&endpoint) {
                     if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.eval(&format!("window.__SEEK_SIDECAR__={json};"));
+                        let _ = window.eval(format!("window.__SEEK_SIDECAR__={json};"));
                     }
                 }
                 let _ = app.emit("sidecar-ready", endpoint);
