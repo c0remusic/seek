@@ -24,46 +24,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SidecarClient } from './sidecarClient.ts';
 import { useSidecarGeneration } from './useSidecarGeneration.ts';
 
-export type SpectralAssessment =
-  | 'likely_lossless'
-  | 'possible_transcode'
-  | 'strong_signs_of_lossy_source'
-  | 'inconclusive';
-
-export interface SpectralAnalysis {
-  requestId: string;
-  path: string;
-  transferId: string | null;
-  sampleRate: number;
-  channels: number;
-  durationSeconds: number;
-  decodedWith: string;
-  nyquistHz: number;
-  cutoffHz: number | null;
-  shelfDropDb: number | null;
-  shelfWidthHz: number | null;
-  confidence: number;
-  assessment: SpectralAssessment;
-  declaredLossless: boolean;
-  /** Best-guess source bitrate implied by where the lowpass sits. */
-  impliedSourceKbps: number | null;
-  /* The averaged spectrum, emitted by the sidecar and rendered as the chart.
-   * Note this is frequency -> dB averaged over the analysed window, NOT a
-   * time x frequency heatmap like Spek's. For deciding whether an encoder
-   * lowpass exists the averaged curve is the sharper instrument: a cliff that
-   * would be a faint edge in a heatmap is unmistakable here. */
-  spectrumHz: number[];
-  spectrumDb: number[];
-  /* The Spek-style picture, flattened freq-major: index = f * heatmapTimeBins
-   * + t, low frequency first, dB peak-normalised to 0. Empty when rendering
-   * failed — the verdict never depends on it. */
-  heatmapDb: number[];
-  heatmapTimeBins: number;
-  heatmapFreqBins: number;
-  fftSize: number;
-  windowCount: number;
-  analysedSeconds: number;
-}
+/* The wire shapes come from the generated protocol — the field-by-field
+ * commentary (why the averaged curve beats a heatmap, what the flattening
+ * order is) lives in shared/schema.py next to the fields themselves. */
+export type { SpectralAnalysis, SpectralAssessment } from '../../../shared/protocol.ts';
+import type { SpectralAnalysis, SpectralAssessment } from '../../../shared/protocol.ts';
 
 /**
  * The persisted summary of a past analysis, reseeded from the sidecar on

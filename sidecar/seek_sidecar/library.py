@@ -255,11 +255,25 @@ class Library:
     # -- scanning ----------------------------------------------------------
 
     def scan(self, roots, progress=None, read_tags=True):
-        """Walk `roots` and rebuild the index. Blocking; call on a worker."""
+        """Walk `roots` and rebuild the index. Blocking; call on a worker.
+
+        INCREMENTAL where it counts. The dominant cost of a scan is
+        `_read_tags` — a full mutagen parse per file — so the index keeps one
+        record per file (mtime, size, and the derived fields) and a file whose
+        mtime+size are unchanged reuses its record instead of being re-read.
+        The release/track AGGREGATES are still rebuilt from scratch every
+        scan: that is pure string work over the records, it costs nothing,
+        and it sidesteps the whole class of accumulator bugs (trackCount,
+        bytes, formats would all need subtraction on deletes). Deleted files
+        fall out naturally — the walk no longer visits them, so their records
+        are simply not carried over. An index from before this field existed
+        has no `files`, which reads as "nothing reusable": one full scan, once.
+        """
         with self._lock:
             if self._scanning:
                 return self.state()
             self._scanning = True
+            known = dict(self._data.get("files") or {})
 
         # Before anything is walked: two spellings of one folder, or a folder
         # nested in another, would each be counted twice.
@@ -267,6 +281,7 @@ class Library:
 
         releases = {}
         tracks = {}
+        kept = {}
         seen = 0
         try:
             for root in roots:
@@ -279,12 +294,39 @@ class Library:
                         if progress and seen % 250 == 0:
                             progress(seen)
 
-                        tags = _read_tags(path) if read_tags else {}
-                        p_artist, p_release, p_title = _from_path(path, roots)
+                        try:
+                            stat = os.stat(path)
+                        except OSError:
+                            continue
 
-                        artist = tags.get("albumartist") or tags.get("artist") or p_artist
-                        release = tags.get("album") or p_release
-                        title = tags.get("title") or p_title
+                        record = known.get(path)
+                        # A record written by a tagless scan must not satisfy a
+                        # tagged one — it never saw the tags it would be
+                        # standing in for. The other direction is fine.
+                        reusable = (
+                            record is not None
+                            and record.get("mtime") == stat.st_mtime
+                            and record.get("size") == stat.st_size
+                            and (record.get("tagged") or not read_tags)
+                        )
+                        if not reusable:
+                            tags = _read_tags(path) if read_tags else {}
+                            p_artist, p_release, p_title = _from_path(path, roots)
+                            record = {
+                                "mtime": stat.st_mtime,
+                                "size": stat.st_size,
+                                "tagged": bool(read_tags),
+                                "artist": (tags.get("albumartist")
+                                           or tags.get("artist") or p_artist),
+                                "release": tags.get("album") or p_release,
+                                "title": tags.get("title") or p_title,
+                                "year": _year_from(tags.get("date")),
+                                "genre": str(tags.get("genre") or "")[:60],
+                            }
+                        kept[path] = record
+
+                        artist = record["artist"]
+                        release = record["release"]
 
                         rkey = release_key(artist, release)
                         if rkey:
@@ -294,10 +336,7 @@ class Library:
                                 "formats": {}, "year": 0, "genre": "",
                             })
                             entry["trackCount"] += 1
-                            try:
-                                entry["bytes"] += os.path.getsize(path)
-                            except OSError:
-                                pass
+                            entry["bytes"] += record["size"]
 
                             extension = os.path.splitext(name)[1].lower().lstrip(".")
                             entry["formats"][extension] = (
@@ -306,14 +345,12 @@ class Library:
                             # First plausible year wins. A release folder with
                             # disagreeing tags is common; averaging them would
                             # invent a year nothing actually claims.
-                            if not entry["year"]:
-                                year = _year_from(tags.get("date"))
-                                if year:
-                                    entry["year"] = year
-                            if not entry["genre"] and tags.get("genre"):
-                                entry["genre"] = str(tags["genre"])[:60]
+                            if not entry["year"] and record["year"]:
+                                entry["year"] = record["year"]
+                            if not entry["genre"] and record["genre"]:
+                                entry["genre"] = record["genre"]
 
-                        tkey = track_key(artist, title)
+                        tkey = track_key(artist, record["title"])
                         if tkey:
                             tracks[tkey] = {"path": path, "release": rkey}
         finally:
@@ -323,6 +360,7 @@ class Library:
                     "roots": list(roots),
                     "releases": releases,
                     "tracks": tracks,
+                    "files": kept,
                 }
                 self._scanning = False
             self.save()

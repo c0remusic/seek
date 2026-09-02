@@ -29,40 +29,17 @@ import { useSidecarGeneration } from './useSidecarGeneration.ts';
 import type { PathFacts } from '../domain/folders.ts';
 import { readableError } from '../domain/folders.ts';
 
-/** `Settings` on the wire. Bytes/sec throughout; upstream's KiB/s is the
- * sidecar's problem, not ours. */
-export interface EngineSettings {
-  downloadFolder: string | null;
-  incompleteFolder: string | null;
-  listenPort: number;
-  maxDownloadSpeed: number;
-  maxUploadSpeed: number;
-  uploadSlots: number;
-  autoConnect: boolean;
-  stallSeconds: number;
-}
+/* `Settings` on the wire, renamed on import so call sites keep reading as
+ * engine settings. Bytes/sec throughout; upstream's KiB/s is the sidecar's
+ * problem, not ours. */
+import type { Settings as EngineSettings } from '../../../shared/protocol.ts';
+export type { Settings as EngineSettings } from '../../../shared/protocol.ts';
+export type {
+  ShareConsent, SharedFolder, ShareState,
+} from '../../../shared/protocol.ts';
+import type { ShareConsent, SharedFolder, ShareState } from '../../../shared/protocol.ts';
 
 export type EngineSettingsPatch = Partial<EngineSettings>;
-
-export type ShareConsent = 'unset' | 'granted' | 'declined';
-
-export interface SharedFolder {
-  virtualName: string;
-  path: string;
-  exists: boolean;
-}
-
-export interface ShareState {
-  consent: ShareConsent;
-  folders: SharedFolder[];
-  scanning: boolean;
-  ready: boolean;
-  fileCount: number | null;
-  folderCount: number | null;
-  totalSize: number | null;
-  lastScanAt: number | null;
-  restartRequired: boolean;
-}
 
 export interface EngineSession {
   /** Null until the first read lands, so the UI can tell "not yet" from "zero". */
@@ -115,7 +92,7 @@ export function useEngine(client: SidecarClient | null): EngineSession {
       return;
     }
 
-    const offShares = client.on('shares.state', (d) => setShares(d as ShareState));
+    const offShares = client.on('shares.state', setShares);
     /* The address is only meaningful while signed in, and the event carries it
      * as null when we are not — so this follows the connection rather than
      * latching the last address we saw. */

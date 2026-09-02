@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Reads shared/schema.py and writes:
-#   shared/protocol.ts                  (consumed by app/, via data/adapt.ts)
+#   shared/protocol.ts                  (imported directly by app/src — the
+#                                        typed client and the data stores)
 #   sidecar/seek_sidecar/protocol.py    (consumed by the sidecar)
 #
 #   python3 shared/generate_protocol.py           # write both

@@ -41,6 +41,7 @@ function t(over: Partial<Transfer> = {}): Transfer {
     secondsSinceProgress: 0,
     finishedAt: null,
     error: null,
+    file: null,
     seenAt: NOW,
     ...over,
   };

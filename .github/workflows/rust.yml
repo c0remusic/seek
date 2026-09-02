@@ -1,0 +1,79 @@
+# Format and lint the Tauri shell.
+#
+# Separate from ci.yml on purpose: that workflow deliberately compiles no Rust
+# ("proves nothing the tests do not" — which was true until the crate grew a
+# supervisor and platform-gated process code with no compiler looking at it on
+# PRs; windows.yml builds it, but only when its own path filter fires). This
+# one is path-filtered to the crate so a frontend- or sidecar-only PR still
+# pays nothing for it.
+#
+# macos-14 and not Linux, deliberately: the `#[cfg(target_os = "macos")]`
+# blocks and the private-API window config only exist there, and a Linux
+# runner would need five webkit/gtk system packages to compile at all.
+#
+# The `npm run build` step is not decoration: `tauri::generate_context!()`
+# embeds and validates `app/dist` at compile time, and dist/ is gitignored —
+# without a frontend build, cargo cannot even typecheck the crate.
+
+name: Rust
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src-tauri/**'
+      - '.github/workflows/rust.yml'
+  pull_request:
+    paths:
+      - 'app/src-tauri/**'
+      - '.github/workflows/rust.yml'
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # fmt first: it does not compile, so a formatting failure reports in
+      # seconds instead of after the dependency build.
+      - name: Format
+        working-directory: app/src-tauri
+        run: cargo fmt --check
+
+      - name: Frontend dist (generate_context! requires it)
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+
+      # tauri-build validates every bundle resource path even under a plain
+      # clippy, and this job deliberately does not freeze the Python sidecar
+      # (that is windows.yml/release.sh territory, minutes of PyInstaller for
+      # a lint run). An empty directory satisfies the existence check.
+      - name: Stub the sidecar resource path
+        run: mkdir -p sidecar/dist/seek-sidecar
+
+      # --locked: fail on Cargo.lock drift instead of silently resolving new
+      # versions the committed lock never saw.
+      - name: Clippy
+        working-directory: app/src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
