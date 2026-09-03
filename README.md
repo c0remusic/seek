@@ -181,6 +181,19 @@ nothing. That is usually the answer, and no other client says it.
 
 ## Install
 
+### Windows
+
+Download `Seek-…-windows-setup.exe` from [**Releases**](../../releases) and run
+it. The installer is not Authenticode-signed, so **SmartScreen will interject
+once**: click **More info → Run anyway**. That's the whole ceremony — updates
+install themselves from inside the app afterwards (same signed-manifest
+mechanism as macOS, described below).
+
+If something goes wrong, the logs live in `%APPDATA%\Seek\data` —
+`seek.log` and `sidecar-stderr.log` are what a bug report needs.
+
+### macOS
+
 Download the `.zip` from [**Releases**](../../releases), unzip it, and drag
 `Seek.app` to your Applications folder.
 
