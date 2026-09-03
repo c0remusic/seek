@@ -388,7 +388,13 @@ export function useSearchSession(
     if (groupBy === 'track') {
       for (const t of grouper.tracks(kept)) out.push({ kind: 'track', id: t.id, track: t, tick: t.tick });
     } else if (groupBy === 'release') {
-      for (const r of grouper.releases(kept)) out.push({ kind: 'release', id: r.id, release: r, tick: r.tick });
+      for (const r of grouper.releases(kept)) {
+        // "Albums only" is a claim about FOLDERS, so it lives here where
+        // folders exist, not in the per-file matches() — and is inert in the
+        // Track and User views, which present no folders to be short.
+        if (filters.minFolderTracks !== null && r.trackCount < filters.minFolderTracks) continue;
+        out.push({ kind: 'release', id: r.id, release: r, tick: r.tick });
+      }
     } else {
       for (const u of grouper.users(kept)) out.push({ kind: 'user', id: u.id, group: u, tick: u.tick });
     }

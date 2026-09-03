@@ -312,6 +312,14 @@ export function matches(s: SourceFile, f: Filters, include: string[], exclude: s
   if (f.minSpeed !== null && s.peer.advertisedSpeed < f.minSpeed) return false;
   if (f.maxQueue !== null && s.peer.queueLength > f.maxQueue) return false;
 
+  // The OPPOSITE null rule from minBitrate above, on purpose: these floors
+  // keep only what is PROVEN. A file advertising no sample rate or bit depth
+  // (lossy formats, old clients) fails them — asking for 24-bit means
+  // "24-bit", not "24-bit or silent about it".
+  if (f.sampleRateMin !== null && (s.sampleRate ?? 0) < f.sampleRateMin) return false;
+  if (f.bitDepthMin !== null && (s.bitDepth ?? 0) < f.bitDepthMin) return false;
+  if (f.hideCompilations && s.parsed.compilation) return false;
+
   for (let i = 0; i < include.length; i++) if (!s.needle.includes(include[i])) return false;
   for (let i = 0; i < exclude.length; i++) if (s.needle.includes(exclude[i])) return false;
 

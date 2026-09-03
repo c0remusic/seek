@@ -16,7 +16,7 @@ import type { Filters } from '../domain/types.ts';
 import { filtersActive } from '../domain/types.ts';
 import type { FilterPreset } from '../data/filterPrefs.ts';
 import { deletePreset, loadPresets, savePreset } from '../data/filterPrefs.ts';
-import { Chip, NumberField, Toggle } from './controls.tsx';
+import { Chip, NumberField, Select, Toggle } from './controls.tsx';
 import { IconClose } from '../icons/index.tsx';
 
 const PRESET_LOSSLESS = 'my usual';
@@ -79,6 +79,22 @@ export function FilterBar({
           checked={filters.freeSlotsOnly}
           onChange={(v) => patch({ freeSlotsOnly: v })}
           label="Free slots"
+        />
+        <Toggle
+          checked={filters.hideCompilations}
+          onChange={(v) => patch({ hideCompilations: v })}
+          label="Hide compilations"
+        />
+
+        <span className="filters__label" title="Hide release folders holding fewer files than this — albums only. Applies to the Release view; the Track and User views have no folders to be short.">
+          Albums only ≥
+        </span>
+        <NumberField
+          label="Hide release folders with fewer files than this"
+          value={filters.minFolderTracks}
+          onChange={(v) => patch({ minFolderTracks: v })}
+          placeholder="off"
+          width="3.5rem"
         />
       </div>
 
@@ -147,6 +163,37 @@ export function FilterBar({
           onChange={(v) => patch({ maxQueue: v })}
           placeholder="any"
           width="3.5rem"
+        />
+
+        {/* Proof floors, not preferences: a file that advertises no sample
+            rate or bit depth FAILS them (see matches() for why the null rule
+            is the opposite of Min bitrate's). */}
+        <span className="filters__label">Bit depth</span>
+        <Select
+          label="Keep only files proven to be at least this bit depth"
+          value={filters.bitDepthMin === null ? 'any' : String(filters.bitDepthMin)}
+          onChange={(v) => patch({ bitDepthMin: v === 'any' ? null : Number(v) })}
+          options={[
+            { value: 'any', label: 'any' },
+            { value: '16', label: '≥ 16-bit' },
+            { value: '24', label: '≥ 24-bit' },
+          ]}
+        />
+
+        <span className="filters__label">Sample rate</span>
+        <Select
+          label="Keep only files proven to be at least this sample rate"
+          value={filters.sampleRateMin === null ? 'any' : String(filters.sampleRateMin)}
+          onChange={(v) => patch({ sampleRateMin: v === 'any' ? null : Number(v) })}
+          options={[
+            { value: 'any', label: 'any' },
+            { value: '44100', label: '≥ 44.1 kHz' },
+            { value: '48000', label: '≥ 48 kHz' },
+            { value: '88200', label: '≥ 88.2 kHz' },
+            { value: '96000', label: '≥ 96 kHz' },
+            { value: '176400', label: '≥ 176.4 kHz' },
+            { value: '192000', label: '≥ 192 kHz' },
+          ]}
         />
       </div>
 
