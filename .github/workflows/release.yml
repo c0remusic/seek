@@ -1,4 +1,5 @@
-# Seek — build a macOS app and attach it to a GitHub Release.
+# Seek — build the macOS app and the Windows installer, and attach
+# both to one GitHub Release with the one updater manifest they poll.
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Runs on a tag, not on every push: the Rust compile plus the PyInstaller freeze
@@ -19,8 +20,10 @@ permissions:
   contents: write        # needed to create the release and upload the asset
 
 jobs:
-  build:
+  macos:
     runs-on: macos-14
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -164,13 +167,9 @@ jobs:
           # but the MANIFEST url is hard-coded in the app and resolved through
           # /releases/latest/download/, which needs a filename that never moves.
           cp "$TARBALL" "Seek.app.tar.gz"
-
-          python3 .github/updater-manifest.py \
-            --version "$VERSION" \
-            --signature-file "$SIGFILE" \
-            --repo "${{ github.repository }}" \
-            --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --out latest.json
+          # The manifest itself is written by the publish job, which needs
+          # BOTH platforms' signatures — this job only exports its half.
+          cp "$SIGFILE" "Seek.app.tar.gz.sig"
 
       # Prove the artifact survived zipping before anyone downloads it. A
       # signature that verifies here is the difference between "unidentified
@@ -186,16 +185,134 @@ jobs:
             && { echo "::error::bundle is linker-signed; Gatekeeper will call it damaged"; exit 1; } || true
           echo "signature verifies"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: macos-release
+          path: |
             ${{ steps.package.outputs.zip }}
             Seek.app.tar.gz
+            Seek.app.tar.gz.sig
+          if-no-files-found: error
+          retention-days: 3
+
+  # The same build a PR gets from windows.yml, plus the signing key — which is
+  # what makes build-windows.sh produce and verify the updater artifacts.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: 'sidecar/requirements*.txt'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install
+        run: |
+          cd app && npm ci
+          cd ../sidecar
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --quiet -r requirements-dev.txt
+
+      - name: Fetch fpcalc
+        run: ./sidecar/fetch-fpcalc.sh
+
+      - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: ./build-windows.sh
+
+      - name: Package
+        run: |
+          VERSION="$(node -p "require('./app/package.json').version")"
+          BUNDLE=app/src-tauri/target/release/bundle/nsis
+          SETUP="$(find "$BUNDLE" -name '*-setup.exe' | head -1)"
+          UPDZIP="$(find "$BUNDLE" -name '*.nsis.zip' | head -1)"
+          [ -n "$SETUP" ] || { echo "::error::no NSIS installer"; exit 1; }
+          [ -n "$UPDZIP" ] || { echo "::error::no updater artifact — was TAURI_SIGNING_PRIVATE_KEY set?"; exit 1; }
+          [ -s "$UPDZIP.sig" ] || { echo "::error::updater artifact is unsigned"; exit 1; }
+          # Fixed names, same policy as Seek.app.tar.gz: the manifest URL is
+          # derived from the version alone, so the asset name must never move.
+          cp "$SETUP" "Seek-${VERSION}-windows-setup.exe"
+          cp "$UPDZIP" "Seek_x64-setup.nsis.zip"
+          cp "$UPDZIP.sig" "Seek_x64-setup.nsis.zip.sig"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            Seek-*-windows-setup.exe
+            Seek_x64-setup.nsis.zip
+            Seek_x64-setup.nsis.zip.sig
+          if-no-files-found: error
+          retention-days: 3
+
+  # Assembles the one manifest both platforms poll, then creates the draft
+  # release. On workflow_dispatch this stops after validating the manifest —
+  # a dry run of the whole pipeline that publishes nothing, which is the only
+  # way to test this file without burning a version tag.
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+
+      - name: Updater manifest
+        run: |
+          python3 .github/updater-manifest.py \
+            --version "${{ needs.macos.outputs.version }}" \
+            --signature-file Seek.app.tar.gz.sig \
+            --windows-signature-file Seek_x64-setup.nsis.zip.sig \
+            --repo "${{ github.repository }}" \
+            --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --out latest.json
+
+      - name: Dry run stops here
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "not a v* tag: pipeline validated, nothing published"
+          ls -l Seek* latest.json
+
+      - uses: softprops/action-gh-release@v2
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          files: |
+            Seek-*-macOS.zip
+            Seek.app.tar.gz
+            Seek-*-windows-setup.exe
+            Seek_x64-setup.nsis.zip
             latest.json
           draft: true          # review it, then publish
           generate_release_notes: true
           body: |
-            ## Installing
+            ## Installing — macOS
 
             macOS quarantines apps that are not signed with a paid Apple
             Developer certificate. Seek is not. After moving it to
@@ -211,6 +328,14 @@ jobs:
 
             Building from source avoids this entirely — an app you compile
             yourself is never quarantined.
+
+            ## Installing — Windows
+
+            Download `Seek-…-windows-setup.exe` and run it. The installer is
+            not Authenticode-signed, so SmartScreen will interject once:
+            choose **More info → Run anyway**. Updates install themselves
+            from inside the app after that. If something goes wrong, the
+            logs live in `%APPDATA%\Seek\data`.
 
 # ---------------------------------------------------------------- Signing
 #
