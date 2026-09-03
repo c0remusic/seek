@@ -132,12 +132,33 @@ SMOKE
 
 # A stale installer from an earlier run must not survive to be mistaken for
 # this build's output.
-rm -f app/src-tauri/target/release/bundle/nsis/*-setup.exe
+rm -f app/src-tauri/target/release/bundle/nsis/*-setup.exe \
+      app/src-tauri/target/release/bundle/nsis/*.nsis.zip \
+      app/src-tauri/target/release/bundle/nsis/*.nsis.zip.sig
 
 say "Building the app"
-( cd app && npm run tauri build ) || die "tauri build failed"
+# tauri.windows.conf.json turns updater artifacts OFF so this script works
+# unsigned (PR CI has no key, and tauri refuses createUpdaterArtifacts
+# without one). A release build, which exports TAURI_SIGNING_PRIVATE_KEY,
+# turns them back on here: the .nsis.zip + .sig pair is what the in-app
+# updater downloads and verifies, and a release without them installs fine
+# by hand and can never self-update.
+if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+  say "  signing key present: producing updater artifacts"
+  ( cd app && npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}' ) \
+    || die "tauri build failed"
+else
+  ( cd app && npm run tauri build ) || die "tauri build failed"
+fi
 
 SETUP="$(find app/src-tauri/target/release/bundle/nsis -name '*-setup.exe' 2>/dev/null | head -1)"
 [ -n "$SETUP" ] || die "no NSIS installer produced"
+
+if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+  UPD_ZIP="$(find app/src-tauri/target/release/bundle/nsis -name '*.nsis.zip' 2>/dev/null | head -1)"
+  [ -n "$UPD_ZIP" ] || die "signing key set but no .nsis.zip updater artifact produced"
+  [ -s "$UPD_ZIP.sig" ] || die "updater artifact is unsigned ($UPD_ZIP.sig missing or empty)"
+  say "Updater artifact $ROOT/$UPD_ZIP (signed)"
+fi
 
 say "Built $ROOT/$SETUP ($(du -h "$SETUP" | cut -f1))"

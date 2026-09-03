@@ -25,19 +25,31 @@ import json
 import sys
 
 
-def build(version, signature, repo, pub_date, notes):
+def build(version, signature, repo, pub_date, notes, windows_signature=None):
     url = (
         f"https://github.com/{repo}/releases/download/v{version}/Seek.app.tar.gz"
     )
     platform = {"signature": signature, "url": url}
+    platforms = {
+        "darwin-aarch64": platform,
+        "darwin-x86_64": platform,
+    }
+    # Windows rides the same manifest. The asset name is FIXED for the same
+    # reason Seek.app.tar.gz is: the URL is derived from the version alone,
+    # so the release job must rename tauri's versioned .nsis.zip to this.
+    if windows_signature:
+        platforms["windows-x86_64"] = {
+            "signature": windows_signature,
+            "url": (
+                f"https://github.com/{repo}/releases/download/"
+                f"v{version}/Seek_x64-setup.nsis.zip"
+            ),
+        }
     return {
         "version": version,
         "notes": notes,
         "pub_date": pub_date,
-        "platforms": {
-            "darwin-aarch64": platform,
-            "darwin-x86_64": platform,
-        },
+        "platforms": platforms,
     }
 
 
@@ -49,21 +61,36 @@ def main(argv=None):
     ap.add_argument("--repo", required=True, help='"owner/name"')
     ap.add_argument("--pub-date", required=True, help="RFC 3339")
     ap.add_argument("--notes", default="See the release notes on GitHub.")
+    ap.add_argument("--windows-signature-file", default=None,
+                    help="the .nsis.zip.sig from the Windows job. Optional: "
+                         "omitting it publishes a macOS-only manifest, which "
+                         "is a deliberate state (a mac-only hotfix), never an "
+                         "accident — the release job always passes it.")
     ap.add_argument("--out", default="latest.json")
     args = ap.parse_args(argv)
 
     version = args.version.lstrip("v")
 
-    with open(args.signature_file) as handle:
-        signature = handle.read().strip()
-    if not signature:
-        # An empty .sig means the build ran without TAURI_SIGNING_PRIVATE_KEY.
-        # Shipping that produces a manifest every client rejects, which looks
-        # like "updates are broken" rather than "a secret is missing", so it
-        # fails here instead.
-        sys.exit("signature file is empty — was TAURI_SIGNING_PRIVATE_KEY set?")
+    def read_signature(path, what):
+        with open(path) as handle:
+            signature = handle.read().strip()
+        if not signature:
+            # An empty .sig means the build ran without
+            # TAURI_SIGNING_PRIVATE_KEY. Shipping that produces a manifest
+            # every client rejects, which looks like "updates are broken"
+            # rather than "a secret is missing", so it fails here instead.
+            sys.exit(f"{what} signature file is empty — "
+                     "was TAURI_SIGNING_PRIVATE_KEY set?")
+        return signature
 
-    manifest = build(version, signature, args.repo, args.pub_date, args.notes)
+    signature = read_signature(args.signature_file, "macOS")
+    windows_signature = (
+        read_signature(args.windows_signature_file, "Windows")
+        if args.windows_signature_file else None
+    )
+
+    manifest = build(version, signature, args.repo, args.pub_date, args.notes,
+                     windows_signature=windows_signature)
     with open(args.out, "w") as handle:
         json.dump(manifest, handle, indent=2)
         handle.write("\n")
