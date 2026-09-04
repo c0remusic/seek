@@ -114,6 +114,20 @@ jobs:
           echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
           echo "imported the certificate; signing as \"$IDENTITY\""
 
+      # A missing repo secret arrives as an EMPTY string, and tauri treats a
+      # present-but-empty TAURI_SIGNING_PRIVATE_KEY as a key to decode — the
+      # build then dies minutes in with "Missing comment in secret key", which
+      # reads like a corrupt key rather than an absent one. Name the real
+      # problem before spending any runner time.
+      - name: The signing key is configured
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          [ -n "$KEY" ] || {
+            echo "::error::repo secret TAURI_SIGNING_PRIVATE_KEY is not configured — add the minisign key release.sh uses (Settings → Secrets and variables → Actions)"
+            exit 1
+          }
+
       - name: Build
         # The updater artifacts are signed during the BUNDLE step, so the key
         # has to be in the environment here rather than at packaging time.
@@ -234,6 +248,18 @@ jobs:
 
       - name: Fetch fpcalc
         run: ./sidecar/fetch-fpcalc.sh
+
+      # Same preflight as the macos job: an absent secret is an empty string,
+      # build-windows.sh would silently take its unsigned path, and the run
+      # only fails at Package time with no updater artifact to package.
+      - name: The signing key is configured
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          [ -n "$KEY" ] || {
+            echo "::error::repo secret TAURI_SIGNING_PRIVATE_KEY is not configured — add the minisign key release.sh uses (Settings → Secrets and variables → Actions)"
+            exit 1
+          }
 
       - name: Build
         env:
