@@ -366,3 +366,22 @@ remaining options, in order:
   around every file operation inside a frozen Python binary with no ObjC
   bindings, while the Soulseek core does raw sockets and arbitrary folder
   scanning. Legitimate long-term direction; not a near-term fix.
+
+---
+
+## Windows
+
+The Windows installer is **not Authenticode-signed**. SmartScreen therefore
+interjects on first run ("Windows protected your PC") and the user clicks
+**More info → Run anyway** — once. The README and the release notes both say
+so in exactly those words, because an unexplained warning reads as danger and
+an explained one reads as paperwork.
+
+What signing would buy and cost: an OV Authenticode certificate (~$100–400/yr)
+removes the warning only after enough installs build reputation; an EV
+certificate (~$300–500/yr, hardware token) removes it immediately. Neither is
+wired into the pipeline. When one exists, the place to add it is the `windows`
+job of `release.yml` (signtool over the NSIS installer, after
+`build-windows.sh`, before packaging) — nothing else changes, because the
+in-app updater already verifies its own minisign signature and does not rely
+on Authenticode at all.
