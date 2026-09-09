@@ -39,7 +39,9 @@ def test_windows_entry_appears_with_its_signature():
                              "notes", windows_signature="WIN_SIG")
     win = out["platforms"]["windows-x86_64"]
     assert win["signature"] == "WIN_SIG"
-    assert win["url"].endswith("/releases/download/v0.3.0/Seek_x64-setup.nsis.zip")
+    # Tauri v2: the update package IS the versioned installer people download.
+    assert win["url"].endswith(
+        "/releases/download/v0.3.0/Seek-0.3.0-windows-setup.exe")
     # And macOS is untouched by the addition.
     assert out["platforms"]["darwin-aarch64"]["signature"] == "MAC_SIG"
 
