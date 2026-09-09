@@ -6,8 +6,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: How do I set up a Discogs / AcoustID / YouTube key?
-    url: https://github.com/IvaKap/seek#setting-up-the-api-keys
+    url: https://github.com/c0remusic/seek#setting-up-the-api-keys
     about: Step-by-step for all three, in the README.
   - name: macOS will not open Seek
-    url: https://github.com/IvaKap/seek#install
+    url: https://github.com/c0remusic/seek#install
     about: The three-click Open Anyway flow, with screenshots.
