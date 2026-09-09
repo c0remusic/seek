@@ -272,23 +272,22 @@ jobs:
           VERSION="$(node -p "require('./app/package.json').version")"
           BUNDLE=app/src-tauri/target/release/bundle/nsis
           SETUP="$(find "$BUNDLE" -name '*-setup.exe' | head -1)"
-          UPDZIP="$(find "$BUNDLE" -name '*.nsis.zip' | head -1)"
           [ -n "$SETUP" ] || { echo "::error::no NSIS installer"; exit 1; }
-          [ -n "$UPDZIP" ] || { echo "::error::no updater artifact — was TAURI_SIGNING_PRIVATE_KEY set?"; exit 1; }
-          [ -s "$UPDZIP.sig" ] || { echo "::error::updater artifact is unsigned"; exit 1; }
-          # Fixed names, same policy as Seek.app.tar.gz: the manifest URL is
-          # derived from the version alone, so the asset name must never move.
+          # On Windows, Tauri v2's update package IS the installer: the build
+          # signs the setup.exe itself (a detached -setup.exe.sig; there is no
+          # .nsis.zip in the v2 format). The manifest's Windows URL is derived
+          # from the version, so the versioned name below is exactly what the
+          # updater will fetch — one file serves hand-installs and updates.
+          [ -s "$SETUP.sig" ] || { echo "::error::installer is unsigned — was TAURI_SIGNING_PRIVATE_KEY set?"; exit 1; }
           cp "$SETUP" "Seek-${VERSION}-windows-setup.exe"
-          cp "$UPDZIP" "Seek_x64-setup.nsis.zip"
-          cp "$UPDZIP.sig" "Seek_x64-setup.nsis.zip.sig"
+          cp "$SETUP.sig" "Seek-${VERSION}-windows-setup.exe.sig"
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
           path: |
             Seek-*-windows-setup.exe
-            Seek_x64-setup.nsis.zip
-            Seek_x64-setup.nsis.zip.sig
+            Seek-*-windows-setup.exe.sig
           if-no-files-found: error
           retention-days: 3
 
@@ -312,10 +311,11 @@ jobs:
 
       - name: Updater manifest
         run: |
+          WINSIG="$(ls Seek-*-windows-setup.exe.sig)"
           python3 .github/updater-manifest.py \
             --version "${{ needs.macos.outputs.version }}" \
             --signature-file Seek.app.tar.gz.sig \
-            --windows-signature-file Seek_x64-setup.nsis.zip.sig \
+            --windows-signature-file "$WINSIG" \
             --repo "${{ github.repository }}" \
             --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --out latest.json
@@ -333,7 +333,6 @@ jobs:
             Seek-*-macOS.zip
             Seek.app.tar.gz
             Seek-*-windows-setup.exe
-            Seek_x64-setup.nsis.zip
             latest.json
           draft: true          # review it, then publish
           generate_release_notes: true

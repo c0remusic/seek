@@ -34,15 +34,17 @@ def build(version, signature, repo, pub_date, notes, windows_signature=None):
         "darwin-aarch64": platform,
         "darwin-x86_64": platform,
     }
-    # Windows rides the same manifest. The asset name is FIXED for the same
-    # reason Seek.app.tar.gz is: the URL is derived from the version alone,
-    # so the release job must rename tauri's versioned .nsis.zip to this.
+    # Windows rides the same manifest. On Windows, Tauri v2's update package
+    # IS the NSIS installer — the same file a person downloads by hand — so
+    # the manifest points at the release's own setup.exe. The name carries
+    # the version, which is fine here: this URL is derived from the version,
+    # unlike the manifest's own address, which must never move.
     if windows_signature:
         platforms["windows-x86_64"] = {
             "signature": windows_signature,
             "url": (
                 f"https://github.com/{repo}/releases/download/"
-                f"v{version}/Seek_x64-setup.nsis.zip"
+                f"v{version}/Seek-{version}-windows-setup.exe"
             ),
         }
     return {
@@ -62,7 +64,7 @@ def main(argv=None):
     ap.add_argument("--pub-date", required=True, help="RFC 3339")
     ap.add_argument("--notes", default="See the release notes on GitHub.")
     ap.add_argument("--windows-signature-file", default=None,
-                    help="the .nsis.zip.sig from the Windows job. Optional: "
+                    help="the -setup.exe.sig from the Windows job. Optional: "
                          "omitting it publishes a macOS-only manifest, which "
                          "is a deliberate state (a mac-only hotfix), never an "
                          "accident — the release job always passes it.")
